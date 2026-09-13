@@ -5,7 +5,7 @@ import android.speech.tts.TextToSpeech
 import android.util.Log
 import java.util.Locale
 
-class TextToSpeechManager(private val context: Context) : TextToSpeech.OnInitListener {
+open class TextToSpeechManager(private val context: Context? = null) : TextToSpeech.OnInitListener {
 
     companion object {
         private const val TAG = "TextToSpeechManager"
@@ -16,7 +16,9 @@ class TextToSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
     private var pendingSpeechText: String? = null
 
     init {
-        tts = TextToSpeech(context.applicationContext, this)
+        context?.let {
+            tts = TextToSpeech(it.applicationContext, this)
+        }
     }
 
     override fun onInit(status: Int) {
@@ -39,7 +41,7 @@ class TextToSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
         }
     }
 
-    fun speak(text: String, flush: Boolean = false) {
+    open fun speak(text: String, flush: Boolean = false) {
         if (text.isBlank()) return
         if (!isInitialized) {
             pendingSpeechText = text
@@ -50,11 +52,11 @@ class TextToSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
         tts?.speak(text, queueMode, null, text.hashCode().toString())
     }
 
-    fun stop() {
+    open fun stop() {
         tts?.stop()
     }
 
-    fun shutdown() {
+    open fun shutdown() {
         stop()
         tts?.shutdown()
         tts = null

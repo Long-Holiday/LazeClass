@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.map
 
 val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "voice_qa_settings")
 
-class SettingsRepository(private val context: Context) {
+open class SettingsRepository(private val context: Context? = null) {
 
     private object PreferencesKeys {
         val BASE_URL = stringPreferencesKey("base_url")
@@ -31,31 +31,33 @@ class SettingsRepository(private val context: Context) {
         val USE_FAKE_LLM = booleanPreferencesKey("use_fake_llm")
     }
 
-    val settingsFlow: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
-        AppSettings(
-            baseUrl = prefs[PreferencesKeys.BASE_URL] ?: "https://api.openai.com/v1",
-            model = prefs[PreferencesKeys.MODEL] ?: "gpt-3.5-turbo",
-            language = prefs[PreferencesKeys.LANGUAGE] ?: "zh-CN",
-            silenceTimeoutMs = prefs[PreferencesKeys.SILENCE_TIMEOUT_MS] ?: 1_500L,
-            maximumWaitMs = prefs[PreferencesKeys.MAXIMUM_WAIT_MS] ?: 10_000L,
-            maximumChars = prefs[PreferencesKeys.MAXIMUM_CHARS] ?: 120,
-            minimumChars = prefs[PreferencesKeys.MINIMUM_CHARS] ?: 8,
-            contextChars = prefs[PreferencesKeys.CONTEXT_CHARS] ?: 200,
-            ttsEnabled = prefs[PreferencesKeys.TTS_ENABLED] ?: true,
-            continuousMode = prefs[PreferencesKeys.CONTINUOUS_MODE] ?: true,
-            historyRetention = prefs[PreferencesKeys.HISTORY_RETENTION]?.let {
-                try {
-                    HistoryRetentionPolicy.valueOf(it)
-                } catch (e: Exception) {
-                    HistoryRetentionPolicy.PERMANENT
-                }
-            } ?: HistoryRetentionPolicy.PERMANENT,
-            useFakeLlm = prefs[PreferencesKeys.USE_FAKE_LLM] ?: false
-        )
+    open val settingsFlow: Flow<AppSettings> by lazy {
+        context!!.settingsDataStore.data.map { prefs ->
+            AppSettings(
+                baseUrl = prefs[PreferencesKeys.BASE_URL] ?: "https://api.openai.com/v1",
+                model = prefs[PreferencesKeys.MODEL] ?: "gpt-3.5-turbo",
+                language = prefs[PreferencesKeys.LANGUAGE] ?: "zh-CN",
+                silenceTimeoutMs = prefs[PreferencesKeys.SILENCE_TIMEOUT_MS] ?: 1_500L,
+                maximumWaitMs = prefs[PreferencesKeys.MAXIMUM_WAIT_MS] ?: 10_000L,
+                maximumChars = prefs[PreferencesKeys.MAXIMUM_CHARS] ?: 120,
+                minimumChars = prefs[PreferencesKeys.MINIMUM_CHARS] ?: 8,
+                contextChars = prefs[PreferencesKeys.CONTEXT_CHARS] ?: 200,
+                ttsEnabled = prefs[PreferencesKeys.TTS_ENABLED] ?: true,
+                continuousMode = prefs[PreferencesKeys.CONTINUOUS_MODE] ?: true,
+                historyRetention = prefs[PreferencesKeys.HISTORY_RETENTION]?.let {
+                    try {
+                        HistoryRetentionPolicy.valueOf(it)
+                    } catch (e: Exception) {
+                        HistoryRetentionPolicy.PERMANENT
+                    }
+                } ?: HistoryRetentionPolicy.PERMANENT,
+                useFakeLlm = prefs[PreferencesKeys.USE_FAKE_LLM] ?: false
+            )
+        }
     }
 
-    suspend fun updateSettings(settings: AppSettings) {
-        context.settingsDataStore.edit { prefs ->
+    open suspend fun updateSettings(settings: AppSettings) {
+        context!!.settingsDataStore.edit { prefs ->
             prefs[PreferencesKeys.BASE_URL] = settings.baseUrl
             prefs[PreferencesKeys.MODEL] = settings.model
             prefs[PreferencesKeys.LANGUAGE] = settings.language

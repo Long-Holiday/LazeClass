@@ -10,6 +10,8 @@ import com.voiceqa.app.batching.FlushReason
 import com.voiceqa.app.batching.QuestionAnswer
 import com.voiceqa.app.batching.TranscriptBuffer
 import com.voiceqa.app.batching.TranscriptSegment
+import com.voiceqa.app.chat.ChatMessageItem
+import com.voiceqa.app.chat.ChatSender
 import com.voiceqa.app.data.AnswerEntity
 import com.voiceqa.app.data.AppDatabase
 import com.voiceqa.app.data.SegmentStatus
@@ -43,7 +45,7 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 class SessionCoordinator(
-    private val context: Context,
+    private val context: Context? = null,
     private val database: AppDatabase,
     private val settingsRepository: SettingsRepository,
     private val apiKeyStore: ApiKeyStore,
@@ -62,13 +64,15 @@ class SessionCoordinator(
     private val answerDao = database.answerDao()
 
     private val actualSpeechToText = speechToText ?: MiniMaxSpeechRecognizer(
-        context = context,
+        context = requireNotNull(context) { "Context must not be null when speechToText is not provided" },
         scope = externalScope,
         apiKeyStore = asrApiKeyStore
     )
     private val actualLlmProvider = llmProvider ?: GenericLlmProvider()
     private val fakeLlmProvider = FakeLlmProvider()
-    private val actualTtsManager = ttsManager ?: TextToSpeechManager(context)
+    private val actualTtsManager = ttsManager ?: TextToSpeechManager(
+        requireNotNull(context) { "Context must not be null when ttsManager is not provided" }
+    )
 
     private val transcriptBuffer = TranscriptBuffer()
     private val batchScheduler = BatchScheduler(externalScope) { reason ->
@@ -83,6 +87,9 @@ class SessionCoordinator(
 
     private val _recentAnswers = MutableStateFlow<List<QuestionAnswer>>(emptyList())
     val recentAnswers: StateFlow<List<QuestionAnswer>> = _recentAnswers.asStateFlow()
+
+    private val _chatMessages = MutableStateFlow<List<ChatMessageItem>>(emptyList())
+    val chatMessages: StateFlow<List<ChatMessageItem>> = _chatMessages.asStateFlow()
 
     private val _confirmedTranscript = MutableStateFlow("")
     val confirmedTranscript: StateFlow<String> = _confirmedTranscript.asStateFlow()
@@ -247,7 +254,7 @@ class SessionCoordinator(
         }
     }
 
-    private suspend fun onFinalTranscript(text: String) {
+    internal suspend fun onFinalTranscript(text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
 
@@ -275,6 +282,14 @@ class SessionCoordinator(
             createdAtMs = now
         )
         transcriptBuffer.append(domainSegment)
+
+        val userMsg = ChatMessageItem(
+            id = "user_${System.currentTimeMillis()}_${generatedId}",
+            sender = ChatSender.USER,
+            content = trimmed,
+            timestamp = now
+        )
+        _chatMessages.value = _chatMessages.value + userMsg
 
         // Update confirmed transcript for UI
         _confirmedTranscript.value = if (_confirmedTranscript.value.isEmpty()) {
@@ -328,7 +343,7 @@ class SessionCoordinator(
         _analysisState.value = AnalysisState.Waiting(transcriptBuffer.pendingChars())
     }
 
-    private suspend fun analyzeOneBatch(batch: AnalysisBatch) {
+    internal suspend fun analyzeOneBatch(batch: AnalysisBatch) {
         _analysisState.value = AnalysisState.Sending(batch.id)
 
         val provider = if (currentSettings.useFakeLlm) {
@@ -359,43 +374,36 @@ class SessionCoordinator(
                 return
             }
 
-            val newAnswers = mutableListOf<QuestionAnswer>()
             for (q in result.questions) {
-                val normalized = TranscriptNormalizer.normalizeQuestion(q.question)
-                val hash = TranscriptNormalizer.sha256(normalized)
+                val isErr = q.answer.startsWith("❌")
+                val assistantMsg = ChatMessageItem(
+                    id = "asst_${System.currentTimeMillis()}_${UUID.randomUUID()}",
+                    sender = ChatSender.ASSISTANT,
+                    content = q.answer,
+                    timestamp = System.currentTimeMillis(),
+                    isError = isErr
+                )
+                _chatMessages.value = _chatMessages.value + assistantMsg
 
-                // 5-minute deduplication window check
-                val isDuplicate = TranscriptNormalizer.isDuplicateAndRecord(hash)
-                if (!isDuplicate) {
-                    newAnswers.add(q)
+                // 持久化到 answerDao
+                val answerEntity = AnswerEntity(
+                    sessionId = batch.sessionId,
+                    batchId = batch.id,
+                    question = q.question,
+                    normalizedQuestionHash = TranscriptNormalizer.sha256(q.question),
+                    answer = q.answer,
+                    createdAt = System.currentTimeMillis()
+                )
+                answerDao.insertAnswer(answerEntity)
 
-                    // Insert to database
-                    val answerEntity = AnswerEntity(
-                        sessionId = batch.sessionId,
-                        batchId = batch.id,
-                        question = q.question,
-                        normalizedQuestionHash = hash,
-                        answer = q.answer,
-                        createdAt = System.currentTimeMillis()
-                    )
-                    answerDao.insertAnswer(answerEntity)
-
-                    // Speak with TTS if enabled
-                    if (currentSettings.ttsEnabled) {
-                        actualTtsManager.speak(q.answer)
-                    }
-                } else {
-                    Log.d(TAG, "Duplicate question ignored: ${q.question}")
+                // TTS 朗读（仅正常回答且开启 TTS 时）
+                if (!isErr && currentSettings.ttsEnabled) {
+                    actualTtsManager.speak(q.answer)
                 }
             }
 
-            if (newAnswers.isNotEmpty()) {
-                _recentAnswers.value = _recentAnswers.value + newAnswers
-                _lastMessage.value = "已识别 ${newAnswers.size} 个新问题并回答"
-            } else {
-                _lastMessage.value = "问题已在5分钟内回答过，已忽略"
-            }
-
+            _recentAnswers.value = _recentAnswers.value + result.questions
+            _lastMessage.value = result.message.ifBlank { "已收到回复" }
             _analysisState.value = AnalysisState.Idle
         } catch (e: Exception) {
             Log.e(TAG, "LLM analysis failed for batch ${batch.id}", e)
@@ -406,6 +414,26 @@ class SessionCoordinator(
             _analysisState.value = AnalysisState.Failed(batch.id, e.localizedMessage ?: "分析失败")
             _lastMessage.value = "分析异常: ${e.localizedMessage ?: "未知错误"}"
         }
+    }
+
+    suspend fun clearChatHistory() = withContext(Dispatchers.IO) {
+        // 1. 清空所有 Room 数据表
+        sessionDao.clearAll()
+        segmentDao.clearAll()
+        answerDao.clearAll()
+
+        // 2. 触发 SQLite 物理压缩以释放存储空间
+        runCatching {
+            database.openHelper.writableDatabase.execSQL("VACUUM")
+        }
+
+        // 3. 重置内存队列与聊天记录
+        transcriptBuffer.clear()
+        TranscriptNormalizer.clearCache()
+        _chatMessages.value = emptyList()
+        _recentAnswers.value = emptyList()
+        _confirmedTranscript.value = ""
+        _lastMessage.value = "已清空所有聊天记录并释放存储空间"
     }
 
     fun speakAnswer(text: String) {
