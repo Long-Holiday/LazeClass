@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -289,7 +290,7 @@ class SessionCoordinator(
             content = trimmed,
             timestamp = now
         )
-        _chatMessages.value = _chatMessages.value + userMsg
+        _chatMessages.update { it + userMsg }
 
         // Update confirmed transcript for UI
         _confirmedTranscript.value = if (_confirmedTranscript.value.isEmpty()) {
@@ -383,7 +384,7 @@ class SessionCoordinator(
                     timestamp = System.currentTimeMillis(),
                     isError = isErr
                 )
-                _chatMessages.value = _chatMessages.value + assistantMsg
+                _chatMessages.update { it + assistantMsg }
 
                 // 持久化到 answerDao
                 val answerEntity = AnswerEntity(
@@ -427,7 +428,17 @@ class SessionCoordinator(
             database.openHelper.writableDatabase.execSQL("VACUUM")
         }
 
-        // 3. 重置内存队列与聊天记录
+        // 3. 若当前处于会话中，恢复当前 session 记录
+        currentSessionId?.let { sId ->
+            val sessionEntity = SessionEntity(
+                id = sId,
+                startedAt = System.currentTimeMillis(),
+                language = currentSettings.language
+            )
+            sessionDao.insertSession(sessionEntity)
+        }
+
+        // 4. 重置内存队列与聊天记录
         transcriptBuffer.clear()
         TranscriptNormalizer.clearCache()
         _chatMessages.value = emptyList()
