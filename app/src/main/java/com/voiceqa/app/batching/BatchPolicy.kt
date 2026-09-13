@@ -30,7 +30,8 @@ data class AnalysisBatch(
 data class QuestionAnswer(
     val question: String,
     val answer: String,
-    val sourceSegmentIds: List<Long> = emptyList()
+    val sourceSegmentIds: List<Long> = emptyList(),
+    val isError: Boolean = false
 )
 
 data class AnalysisResult(

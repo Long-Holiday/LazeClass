@@ -200,6 +200,7 @@ class SessionCoordinator(
             }
         }
 
+        currentSessionId = null
         _captureState.value = CaptureState.Idle
     }
 
@@ -376,7 +377,7 @@ class SessionCoordinator(
             }
 
             for (q in result.questions) {
-                val isErr = q.answer.startsWith("❌")
+                val isErr = q.isError || q.answer.startsWith("❌")
                 val assistantMsg = ChatMessageItem(
                     id = "asst_${System.currentTimeMillis()}_${UUID.randomUUID()}",
                     sender = ChatSender.ASSISTANT,
@@ -418,6 +419,9 @@ class SessionCoordinator(
     }
 
     suspend fun clearChatHistory() = withContext(Dispatchers.IO) {
+        actualTtsManager.stop()
+        batchScheduler.cancel()
+
         // 1. 清空所有 Room 数据表
         sessionDao.clearAll()
         segmentDao.clearAll()
@@ -429,13 +433,18 @@ class SessionCoordinator(
         }
 
         // 3. 若当前处于会话中，恢复当前 session 记录
-        currentSessionId?.let { sId ->
-            val sessionEntity = SessionEntity(
-                id = sId,
-                startedAt = System.currentTimeMillis(),
-                language = currentSettings.language
-            )
-            sessionDao.insertSession(sessionEntity)
+        val isSessionActive = _captureState.value is CaptureState.Listening || _captureState.value is CaptureState.Starting
+        if (isSessionActive) {
+            currentSessionId?.let { sId ->
+                val sessionEntity = SessionEntity(
+                    id = sId,
+                    startedAt = System.currentTimeMillis(),
+                    language = currentSettings.language
+                )
+                sessionDao.insertSession(sessionEntity)
+            }
+        } else {
+            currentSessionId = null
         }
 
         // 4. 重置内存队列与聊天记录

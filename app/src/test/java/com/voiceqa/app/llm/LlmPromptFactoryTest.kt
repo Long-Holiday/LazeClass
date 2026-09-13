@@ -48,4 +48,26 @@ class LlmPromptFactoryTest {
         assertTrue(userPrompt.contains("[用户当前发言]"))
         assertTrue(userPrompt.contains("有什么好推荐吗？"))
     }
+
+    @Test
+    fun testUserPromptStripsLegacySegmentIds() {
+        val batch = AnalysisBatch(
+            id = "b3",
+            sessionId = "s1",
+            segmentIds = listOf(99L, 100L),
+            context = "[90] 今天天气真好\n[91] 是啊很适合出游",
+            newText = "[99] 那故宫几点关门\n[100] 门票多少钱",
+            previouslyAnswered = emptyList()
+        )
+
+        val userPrompt = LlmPromptFactory.createUserPrompt(batch)
+        assertTrue(userPrompt.contains("[前文背景]"))
+        assertTrue(userPrompt.contains("今天天气真好\n是啊很适合出游"))
+        assertTrue(userPrompt.contains("[用户当前发言]"))
+        assertTrue(userPrompt.contains("那故宫几点关门\n门票多少钱"))
+        org.junit.Assert.assertFalse(userPrompt.contains("[90]"))
+        org.junit.Assert.assertFalse(userPrompt.contains("[91]"))
+        org.junit.Assert.assertFalse(userPrompt.contains("[99]"))
+        org.junit.Assert.assertFalse(userPrompt.contains("[100]"))
+    }
 }

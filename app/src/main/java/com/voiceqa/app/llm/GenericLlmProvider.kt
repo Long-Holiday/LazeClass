@@ -4,8 +4,10 @@ import android.util.Log
 import com.voiceqa.app.batching.AnalysisBatch
 import com.voiceqa.app.batching.AnalysisResult
 import com.voiceqa.app.batching.QuestionAnswer
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -28,9 +30,11 @@ class GenericLlmProvider(
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 
+    @OptIn(ExperimentalSerializationApi::class)
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
+        explicitNulls = false
     }
 
     override suspend fun analyze(
@@ -45,7 +49,8 @@ class GenericLlmProvider(
                     QuestionAnswer(
                         question = batch.newText,
                         answer = "❌ [鉴权失败] 未配置 API Key，请前往“设置”检查密钥配置。",
-                        sourceSegmentIds = batch.segmentIds
+                        sourceSegmentIds = batch.segmentIds,
+                        isError = true
                     )
                 ),
                 message = "未配置 API Key"
@@ -72,6 +77,7 @@ class GenericLlmProvider(
         try {
             executeRequest(requestUrl, requestJson, apiKey, batch)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "Unexpected error during analyze: ${e.message}", e)
             AnalysisResult(
                 hasQuestion = true,
@@ -79,7 +85,8 @@ class GenericLlmProvider(
                     QuestionAnswer(
                         question = batch.newText,
                         answer = "❌ [未知错误] ${e.localizedMessage ?: e.message}",
-                        sourceSegmentIds = batch.segmentIds
+                        sourceSegmentIds = batch.segmentIds,
+                        isError = true
                     )
                 ),
                 message = "请求异常"
@@ -118,7 +125,8 @@ class GenericLlmProvider(
                     QuestionAnswer(
                         question = batch.newText,
                         answer = "❌ [网络异常] 无法连接到大模型服务: ${e.localizedMessage ?: e.message}\n请检查网络连接及 Base URL 配置。",
-                        sourceSegmentIds = batch.segmentIds
+                        sourceSegmentIds = batch.segmentIds,
+                        isError = true
                     )
                 ),
                 message = "网络异常"
@@ -128,6 +136,7 @@ class GenericLlmProvider(
         response.use { resp ->
             val code = resp.code
             val bodyString = resp.body?.string().orEmpty()
+            val safeBody = bodyString.take(500)
 
             if (code == 401 || code == 403) {
                 return AnalysisResult(
@@ -135,8 +144,9 @@ class GenericLlmProvider(
                     questions = listOf(
                         QuestionAnswer(
                             question = batch.newText,
-                            answer = "❌ [鉴权失败 (HTTP $code)] API Key 无效或未授权，请前往“设置”检查密钥配置。\n响应: $bodyString",
-                            sourceSegmentIds = batch.segmentIds
+                            answer = "❌ [鉴权失败 (HTTP $code)] API Key 无效或未授权，请前往“设置”检查密钥配置。\n响应: $safeBody",
+                            sourceSegmentIds = batch.segmentIds,
+                            isError = true
                         )
                     ),
                     message = "鉴权失败"
@@ -148,8 +158,9 @@ class GenericLlmProvider(
                     questions = listOf(
                         QuestionAnswer(
                             question = batch.newText,
-                            answer = "❌ [请求限流 (HTTP 429)] 触发频率限制，请稍后再试。\n响应: $bodyString",
-                            sourceSegmentIds = batch.segmentIds
+                            answer = "❌ [请求限流 (HTTP 429)] 触发频率限制，请稍后再试。\n响应: $safeBody",
+                            sourceSegmentIds = batch.segmentIds,
+                            isError = true
                         )
                     ),
                     message = "触发限流"
@@ -161,8 +172,9 @@ class GenericLlmProvider(
                     questions = listOf(
                         QuestionAnswer(
                             question = batch.newText,
-                            answer = "❌ [服务异常 (HTTP $code)]\n响应: $bodyString",
-                            sourceSegmentIds = batch.segmentIds
+                            answer = "❌ [服务异常 (HTTP $code)]\n响应: $safeBody",
+                            sourceSegmentIds = batch.segmentIds,
+                            isError = true
                         )
                     ),
                     message = "服务异常"
@@ -177,8 +189,9 @@ class GenericLlmProvider(
                     questions = listOf(
                         QuestionAnswer(
                             question = batch.newText,
-                            answer = "❌ [解析异常] 无法解析大模型响应: ${e.localizedMessage ?: e.message}\n响应: $bodyString",
-                            sourceSegmentIds = batch.segmentIds
+                            answer = "❌ [解析异常] 无法解析大模型响应: ${e.localizedMessage ?: e.message}\n响应: $safeBody",
+                            sourceSegmentIds = batch.segmentIds,
+                            isError = true
                         )
                     ),
                     message = "响应解析失败"

@@ -334,6 +334,7 @@ class SessionCoordinatorTest {
         assertTrue("sessionDao.clearAll should be called", fakeSessionDao.clearAllCalled)
         assertTrue("segmentDao.clearAll should be called", fakeSegmentDao.clearAllCalled)
         assertTrue("answerDao.clearAll should be called", fakeAnswerDao.clearAllCalled)
+        assertTrue("ttsManager.stop should be called", fakeTtsManager.stopCalled)
 
         // 5. Verify SQLite VACUUM was executed
         assertTrue(
@@ -346,6 +347,63 @@ class SessionCoordinatorTest {
         assertTrue("recentAnswers should be empty", coordinatorWithLlm.recentAnswers.value.isEmpty())
         assertEquals("", coordinatorWithLlm.confirmedTranscript.value)
         assertEquals("已清空所有聊天记录并释放存储空间", coordinatorWithLlm.lastMessage.value)
+    }
+
+    @Test
+    fun testAnalyzeOneBatchRecognizesIsErrorFlag() = runBlocking {
+        val testLlmProvider = object : LlmProvider {
+            override suspend fun analyze(batch: AnalysisBatch, settings: LlmSettings, apiKey: String?): AnalysisResult {
+                return AnalysisResult(
+                    hasQuestion = true,
+                    questions = listOf(
+                        QuestionAnswer(
+                            question = "故宫门票多少钱？",
+                            answer = "自定义错误消息（未以红叉开头）",
+                            isError = true
+                        )
+                    ),
+                    message = "分析异常"
+                )
+            }
+        }
+
+        val coordinator = createCoordinator(
+            llmProvider = testLlmProvider,
+            initialSettings = AppSettings(ttsEnabled = true)
+        )
+        coordinator.startSession()
+
+        val batch = AnalysisBatch(
+            id = "batch-error-flag",
+            sessionId = "session-test-error",
+            segmentIds = listOf(1L),
+            context = "",
+            newText = "故宫门票多少钱？",
+            previouslyAnswered = emptyList()
+        )
+
+        coordinator.analyzeOneBatch(batch)
+
+        val messages = coordinator.chatMessages.value
+        assertEquals(1, messages.size)
+        assertTrue(messages[0].isError)
+        // TTS should NOT speak when isError = true
+        assertTrue(fakeTtsManager.spokenTexts.isEmpty())
+    }
+
+    @Test
+    fun testStopSessionClearsCurrentSessionIdAndClearChatHistoryDoesNotRestore() = runBlocking {
+        val coordinator = createCoordinator()
+        coordinator.startSession()
+        coordinator.onFinalTranscript("第一条消息")
+
+        coordinator.stopSession()
+        fakeSessionDao.clearAllCalled = false
+
+        coordinator.clearChatHistory()
+
+        assertTrue(fakeSessionDao.clearAllCalled)
+        assertTrue(fakeSessionDao.sessions.isEmpty())
     }
 
     // --- Test Doubles / Fakes ---
@@ -562,9 +620,14 @@ class SessionCoordinatorTest {
     class FakeTtsManager : TextToSpeechManager(null) {
         val spokenTexts = mutableListOf<String>()
         var shutdownCalled = false
+        var stopCalled = false
 
         override fun speak(text: String, flush: Boolean) {
             spokenTexts.add(text)
+        }
+
+        override fun stop() {
+            stopCalled = true
         }
 
         override fun shutdown() {

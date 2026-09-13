@@ -9,7 +9,9 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import java.io.IOException
 
@@ -221,7 +223,56 @@ class GenericLlmProviderTest {
 
         assertTrue(result.hasQuestion)
         assertEquals("响应解析失败", result.message)
+        assertTrue(result.questions[0].isError)
         assertTrue(result.questions[0].answer.startsWith("❌ [解析异常]"))
         assertTrue(result.questions[0].answer.contains("<html>Bad Gateway</html>"))
+    }
+
+    @Test
+    fun testSerializationOmitsExplicitNulls() = runBlocking {
+        var capturedBody = ""
+        val client = createMockClient { req ->
+            val buffer = okio.Buffer()
+            req.body?.writeTo(buffer)
+            capturedBody = buffer.readUtf8()
+            mockResponse(req, 200, """{"choices":[{"message":{"role":"assistant","content":"ok"}}]}""")
+        }
+
+        val provider = GenericLlmProvider(client)
+        val result = provider.analyze(defaultBatch, defaultSettings, "test-key")
+
+        assertFalse(capturedBody.contains("response_format"))
+        assertFalse(result.questions[0].isError)
+    }
+
+    @Test
+    fun testCancellationExceptionIsRethrown() = runBlocking {
+        val client = createMockClient {
+            throw kotlinx.coroutines.CancellationException("Job cancelled")
+        }
+
+        val provider = GenericLlmProvider(client)
+        try {
+            provider.analyze(defaultBatch, defaultSettings, "test-key")
+            fail("Should have rethrown CancellationException")
+        } catch (e: Exception) {
+            assertTrue(e is kotlinx.coroutines.CancellationException)
+        }
+    }
+
+    @Test
+    fun testLongErrorBodyIsTruncatedTo500Chars() = runBlocking {
+        val longBody = "A".repeat(1200)
+        val client = createMockClient { req ->
+            mockResponse(req, 500, longBody, "Server Error")
+        }
+
+        val provider = GenericLlmProvider(client)
+        val result = provider.analyze(defaultBatch, defaultSettings, "test-key")
+
+        assertTrue(result.questions[0].isError)
+        val answer = result.questions[0].answer
+        val responseSnippet = answer.substringAfter("响应: ")
+        assertEquals(500, responseSnippet.length)
     }
 }
