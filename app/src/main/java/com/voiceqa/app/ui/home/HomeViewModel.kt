@@ -114,8 +114,4 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             coordinator.clearChatHistory()
         }
     }
-
-    fun onSpeakText(text: String) {
-        coordinator.speakAnswer(text)
-    }
 }

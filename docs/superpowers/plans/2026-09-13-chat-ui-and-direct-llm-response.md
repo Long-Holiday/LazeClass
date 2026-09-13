@@ -233,10 +233,6 @@ for (q in result.questions) {
     )
     answerDao.insertAnswer(answerEntity)
 
-    // TTS 朗读（仅正常回答且开启 TTS 时）
-    if (!isErr && currentSettings.ttsEnabled) {
-        actualTtsManager.speak(q.answer)
-    }
 }
 ```
 
@@ -312,7 +308,6 @@ data class HomeUiState(
 修改 `app/src/main/java/com/voiceqa/app/ui/home/HomeViewModel.kt`：
 - 在状态流中结合 `coordinator.chatMessages`；
 - 暴露 `fun onClearChatHistory() { viewModelScope.launch { coordinator.clearChatHistory() } }`；
-- 暴露 `fun onSpeakText(text: String) { coordinator.speakAnswer(text) }`。
 
 - [ ] **Step 3: 重构 HomeScreen 界面**
 
@@ -324,7 +319,7 @@ data class HomeUiState(
    - 当 `messages.isEmpty()` 时，显示空状态占位引导图文：“点击下方开始监听，通过语音与 AI 展开对话”。
    - 遍历 `messages` 渲染：
      - `ChatSender.USER`：右对齐绿色/主色气泡，显示用户语音转写内容与时间。
-     - `ChatSender.ASSISTANT`：左对齐浅灰气泡；若 `isError = true`，显示浅红边框和错误标识；附带轻量朗读按钮。
+     - `ChatSender.ASSISTANT`：左对齐浅灰气泡；若 `isError = true`，显示浅红边框和错误标识。
    - 当 `analysisState is AnalysisState.Sending` 时，在最下方渲染“对方正在思考中...”小气泡。
    - 配合 `rememberLazyListState()`，每次有新消息时平滑滚动到底部。
 3. **底部操作与实时语音栏**：

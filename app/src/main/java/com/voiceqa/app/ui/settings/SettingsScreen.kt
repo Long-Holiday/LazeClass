@@ -166,8 +166,8 @@ fun SettingsScreen(
                 }
             }
 
-            // Section 3: Speech, TTS & Mode
-            Text("语音与朗读设置", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            // Section 3: Speech & Mode
+            Text("语音设置", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
@@ -203,21 +203,6 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("朗读识别到的答案 (TTS)", fontWeight = FontWeight.Medium)
-                            Text("仅播报提取到的回答，不播报无问题提示", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                        }
-                        Switch(
-                            checked = uiState.ttsEnabled,
-                            onCheckedChange = { viewModel.onTtsEnabledChanged(it) }
-                        )
-                    }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),

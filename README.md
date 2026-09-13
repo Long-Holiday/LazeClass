@@ -14,7 +14,6 @@ VoiceQA 是一个单 APK、客户端 BYOK 直连 LLM、基于 MiniMax ASR 的智
 - **本地存储**: Room Database（会话、文本段落、问答历史三张表）
 - **应用配置**: AndroidX DataStore Preferences
 - **安全与加密**: Android Keystore + AES-GCM-256（安全保存在私有目录，禁止自动云备份）
-- **语音播报**: Android `TextToSpeech`（仅朗读识别到的答案内容）
 - **前台服务**: `CaptureForegroundService`（麦克风前台服务类型，支持常驻通知控制）
 
 ---
@@ -32,7 +31,7 @@ app/
 │  │  ├─ HomeViewModel.kt                   // 首页状态与交互管理
 │  │  └─ HomeUiState.kt                     // 录音状态与分析状态的双独立状态持有
 │  ├─ settings/
-│  │  ├─ SettingsScreen.kt                  // API 地址、模型、密钥、批量策略、TTS 与模式切换
+│  │  ├─ SettingsScreen.kt                  // API 地址、模型、密钥、批量策略与模式切换
 │  │  └─ SettingsViewModel.kt               // 设置读写与 Keystore 加密操作
 │  └─ history/
 │     ├─ HistoryScreen.kt                   // 历史问答列表与清空
@@ -71,9 +70,6 @@ app/
 ├─ security/
 │  └─ ApiKeyStore.kt                        // Android Keystore + AES-GCM 密钥安全存储
 │
-├─ tts/
-│  └─ TextToSpeechManager.kt                // 答案朗读管理
-│
 └─ settings/
    ├─ AppSettings.kt                        // 设置数据模型
    └─ SettingsRepository.kt                 // DataStore Preferences 仓库
@@ -100,7 +96,7 @@ app/
 3. **上下文与 5 分钟去重**
    - 提交后的段落自动保留作为指代上下文（默认最近 200 字，附带 `[id]` 编号）。
    - 服务端提取问题后，在客户端进行标点、大小写和空白符号规范化。
-   - 对规范化字符串计算 SHA-256，5 分钟内相同问题不重复展示与朗读。
+   - 对规范化字符串计算 SHA-256，5 分钟内相同问题不重复展示。
 
 4. **安全 BYOK 密钥管理**
    - 用户在设置页分别输入 LLM API Key 与 MiniMax ASR API Key。
@@ -115,7 +111,7 @@ app/
    - 点击“立即发送”会主动结束当前音频段，无需等待自动静音切分。
 
 6. **离线测试模式 (Fake LLM)**
-   - 在设置页中勾选“离线模拟提供者 (Fake LLM)”，可以在无网络或无 API Key 环境下测试语音输入、问答展示、TTS 朗读与会话保存。
+   - 在设置页中勾选“离线模拟提供者 (Fake LLM)”，可以在无网络或无 API Key 环境下测试语音输入、问答展示与会话保存。
 
 ---
 

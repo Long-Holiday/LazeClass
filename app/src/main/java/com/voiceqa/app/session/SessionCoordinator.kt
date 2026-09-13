@@ -28,7 +28,6 @@ import com.voiceqa.app.speech.MiniMaxSpeechRecognizer
 import com.voiceqa.app.speech.SpeechEvent
 import com.voiceqa.app.speech.SpeechToText
 import com.voiceqa.app.speech.TranscriptNormalizer
-import com.voiceqa.app.tts.TextToSpeechManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
@@ -55,7 +54,6 @@ class SessionCoordinator(
     private val asrApiKeyStore: ApiKeyStore = apiKeyStore,
     private val speechToText: SpeechToText? = null,
     private val llmProvider: LlmProvider? = null,
-    private val ttsManager: TextToSpeechManager? = null,
     private val externalScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
     companion object {
@@ -73,9 +71,6 @@ class SessionCoordinator(
     )
     private val actualLlmProvider = llmProvider ?: GenericLlmProvider()
     private val fakeLlmProvider = FakeLlmProvider()
-    private val actualTtsManager = ttsManager ?: TextToSpeechManager(
-        requireNotNull(context) { "Context must not be null when ttsManager is not provided" }
-    )
 
     private val transcriptBuffer = TranscriptBuffer()
     private val batchScheduler = BatchScheduler(externalScope) { reason ->
@@ -400,11 +395,6 @@ class SessionCoordinator(
                     createdAt = System.currentTimeMillis()
                 )
                 answerDao.insertAnswer(answerEntity)
-
-                // TTS 朗读（仅正常回答且开启 TTS 时）
-                if (!isErr && currentSettings.ttsEnabled) {
-                    actualTtsManager.speak(q.answer)
-                }
             }
 
             _recentAnswers.value = _recentAnswers.value + result.questions
@@ -426,7 +416,6 @@ class SessionCoordinator(
     }
 
     suspend fun clearChatHistory() = withContext(Dispatchers.IO) {
-        actualTtsManager.stop()
         batchScheduler.cancel()
         contentGeneration++
         batchGenerations.clear()
@@ -476,10 +465,6 @@ class SessionCoordinator(
         currentSessionId = null
     }
 
-    fun speakAnswer(text: String) {
-        actualTtsManager.speak(text, flush = true)
-    }
-
     fun release() {
         speechCollectJob?.cancel()
         externalScope.launch {
@@ -487,6 +472,5 @@ class SessionCoordinator(
         }
         analysisQueue.stop()
         actualSpeechToText.release()
-        actualTtsManager.shutdown()
     }
 }

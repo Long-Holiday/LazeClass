@@ -25,7 +25,6 @@ import com.voiceqa.app.settings.AppSettings
 import com.voiceqa.app.settings.SettingsRepository
 import com.voiceqa.app.speech.SpeechEvent
 import com.voiceqa.app.speech.SpeechToText
-import com.voiceqa.app.tts.TextToSpeechManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -53,7 +52,6 @@ class SessionCoordinatorTest {
     private lateinit var fakeSettingsRepo: FakeSettingsRepository
     private lateinit var fakeApiKeyStore: FakeApiKeyStore
     private lateinit var fakeSpeechToText: FakeSpeechToText
-    private lateinit var fakeTtsManager: FakeTtsManager
     private lateinit var testScope: CoroutineScope
     private var executedSqlStatements = mutableListOf<String>()
 
@@ -72,7 +70,6 @@ class SessionCoordinatorTest {
         fakeSettingsRepo = FakeSettingsRepository()
         fakeApiKeyStore = FakeApiKeyStore()
         fakeSpeechToText = FakeSpeechToText()
-        fakeTtsManager = FakeTtsManager()
         testScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
     }
 
@@ -94,7 +91,6 @@ class SessionCoordinatorTest {
             asrApiKeyStore = fakeApiKeyStore,
             speechToText = fakeSpeechToText,
             llmProvider = llmProvider,
-            ttsManager = fakeTtsManager,
             externalScope = testScope
         )
     }
@@ -154,7 +150,7 @@ class SessionCoordinatorTest {
     }
 
     @Test
-    fun testAnalyzeOneBatchAppendsAssistantMessageAndSpeaksTts() = runBlocking {
+    fun testAnalyzeOneBatchAppendsAssistantMessage() = runBlocking {
         val testLlmProvider = object : LlmProvider {
             override suspend fun analyze(batch: AnalysisBatch, settings: LlmSettings, apiKey: String?): AnalysisResult {
                 return AnalysisResult(
@@ -170,10 +166,7 @@ class SessionCoordinatorTest {
             }
         }
 
-        val coordinator = createCoordinator(
-            llmProvider = testLlmProvider,
-            initialSettings = AppSettings(ttsEnabled = true)
-        )
+        val coordinator = createCoordinator(llmProvider = testLlmProvider)
         coordinator.startSession()
 
         val batch = AnalysisBatch(
@@ -200,13 +193,10 @@ class SessionCoordinatorTest {
         assertEquals(1, fakeAnswerDao.answers.size)
         assertEquals("故宫门票旺季60元，淡季40元。", fakeAnswerDao.answers[0].answer)
 
-        // Verify spoken with TTS
-        assertEquals(1, fakeTtsManager.spokenTexts.size)
-        assertEquals("故宫门票旺季60元，淡季40元。", fakeTtsManager.spokenTexts[0])
     }
 
     @Test
-    fun testAnalyzeOneBatchWithErrorMessageSetsIsErrorAndSkipsTts() = runBlocking {
+    fun testAnalyzeOneBatchWithErrorMessageSetsIsError() = runBlocking {
         val testLlmProvider = object : LlmProvider {
             override suspend fun analyze(batch: AnalysisBatch, settings: LlmSettings, apiKey: String?): AnalysisResult {
                 return AnalysisResult(
@@ -222,10 +212,7 @@ class SessionCoordinatorTest {
             }
         }
 
-        val coordinator = createCoordinator(
-            llmProvider = testLlmProvider,
-            initialSettings = AppSettings(ttsEnabled = true)
-        )
+        val coordinator = createCoordinator(llmProvider = testLlmProvider)
         coordinator.startSession()
 
         val batch = AnalysisBatch(
@@ -250,47 +237,6 @@ class SessionCoordinatorTest {
         // Persisted to answerDao
         assertEquals(1, fakeAnswerDao.answers.size)
 
-        // TTS should NOT speak error answers
-        assertTrue(fakeTtsManager.spokenTexts.isEmpty())
-    }
-
-    @Test
-    fun testTtsDisabledDoesNotSpeak() = runBlocking {
-        val testLlmProvider = object : LlmProvider {
-            override suspend fun analyze(batch: AnalysisBatch, settings: LlmSettings, apiKey: String?): AnalysisResult {
-                return AnalysisResult(
-                    hasQuestion = true,
-                    questions = listOf(
-                        QuestionAnswer(
-                            question = "你好",
-                            answer = "你好！有什么我可以帮你的？"
-                        )
-                    ),
-                    message = "已收到回复"
-                )
-            }
-        }
-
-        val coordinator = createCoordinator(
-            llmProvider = testLlmProvider,
-            initialSettings = AppSettings(ttsEnabled = false)
-        )
-        coordinator.startSession()
-
-        val batch = AnalysisBatch(
-            id = "batch-2",
-            sessionId = "session-test-2",
-            segmentIds = listOf(3L),
-            context = "",
-            newText = "你好",
-            previouslyAnswered = emptyList()
-        )
-
-        coordinator.analyzeOneBatch(batch)
-
-        // TTS should NOT speak when ttsEnabled is false
-        assertTrue(fakeTtsManager.spokenTexts.isEmpty())
-        assertEquals(1, coordinator.chatMessages.value.size)
     }
 
     @Test
@@ -336,7 +282,6 @@ class SessionCoordinatorTest {
         assertTrue("sessionDao.clearAll should be called", fakeSessionDao.clearAllCalled)
         assertTrue("segmentDao.clearAll should be called", fakeSegmentDao.clearAllCalled)
         assertTrue("answerDao.clearAll should be called", fakeAnswerDao.clearAllCalled)
-        assertTrue("ttsManager.stop should be called", fakeTtsManager.stopCalled)
 
         // 5. Verify SQLite VACUUM was executed
         assertTrue(
@@ -369,10 +314,7 @@ class SessionCoordinatorTest {
             }
         }
 
-        val coordinator = createCoordinator(
-            llmProvider = testLlmProvider,
-            initialSettings = AppSettings(ttsEnabled = true)
-        )
+        val coordinator = createCoordinator(llmProvider = testLlmProvider)
         coordinator.startSession()
 
         val batch = AnalysisBatch(
@@ -389,8 +331,6 @@ class SessionCoordinatorTest {
         val messages = coordinator.chatMessages.value
         assertEquals(1, messages.size)
         assertTrue(messages[0].isError)
-        // TTS should NOT speak when isError = true
-        assertTrue(fakeTtsManager.spokenTexts.isEmpty())
     }
 
     @Test
@@ -688,24 +628,6 @@ class SessionCoordinatorTest {
         override suspend fun save(apiKey: String) { key = apiKey }
         override suspend fun load(): String? = key
         override suspend fun clear() { key = null }
-    }
-
-    class FakeTtsManager : TextToSpeechManager(null) {
-        val spokenTexts = mutableListOf<String>()
-        var shutdownCalled = false
-        var stopCalled = false
-
-        override fun speak(text: String, flush: Boolean) {
-            spokenTexts.add(text)
-        }
-
-        override fun stop() {
-            stopCalled = true
-        }
-
-        override fun shutdown() {
-            shutdownCalled = true
-        }
     }
 
     class FakeSpeechToText : SpeechToText {

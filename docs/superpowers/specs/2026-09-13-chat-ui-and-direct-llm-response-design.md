@@ -112,7 +112,6 @@ data class ChatMessageItem(
      - 若 `isError = true`：
        - 边框为 Error 颜色，背景为浅红/ErrorContainer。
        - 显示醒目的错误标签（例如 `❌ [请求异常 HTTP 401]`）与详细报错内容。
-     - 右上角或底部附带小型“朗读 (TTS)”图标按钮，支持随时语音朗读该条内容。
    - 思考中气泡（Thinking）：
      - 当 LLM 请求正在发送中（`AnalysisState.Sending`）时，在左侧呈现带有跳动圆点或“对方正在思考回复...”的轻量气泡，收到回复后替换为正式气泡。
 3. **底部语音交互与输入栏**：

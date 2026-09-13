@@ -24,7 +24,6 @@ data class SettingsUiState(
     val maximumChars: Int = 120,
     val minimumChars: Int = 8,
     val contextChars: Int = 200,
-    val ttsEnabled: Boolean = true,
     val continuousMode: Boolean = true,
     val historyRetention: HistoryRetentionPolicy = HistoryRetentionPolicy.PERMANENT,
     val useFakeLlm: Boolean = false,
@@ -57,7 +56,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     maximumChars = settings.maximumChars,
                     minimumChars = settings.minimumChars,
                     contextChars = settings.contextChars,
-                    ttsEnabled = settings.ttsEnabled,
                     continuousMode = settings.continuousMode,
                     historyRetention = settings.historyRetention,
                     useFakeLlm = settings.useFakeLlm
@@ -98,10 +96,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _uiState.value = _uiState.value.copy(maximumChars = chars)
     }
 
-    fun onTtsEnabledChanged(enabled: Boolean) {
-        _uiState.value = _uiState.value.copy(ttsEnabled = enabled)
-    }
-
     fun onContinuousModeChanged(enabled: Boolean) {
         _uiState.value = _uiState.value.copy(continuousMode = enabled)
     }
@@ -134,7 +128,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     maximumChars = state.maximumChars,
                     minimumChars = state.minimumChars,
                     contextChars = state.contextChars,
-                    ttsEnabled = state.ttsEnabled,
                     continuousMode = state.continuousMode,
                     historyRetention = state.historyRetention,
                     useFakeLlm = state.useFakeLlm

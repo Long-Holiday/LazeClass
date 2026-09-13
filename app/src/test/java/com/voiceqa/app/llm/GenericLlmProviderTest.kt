@@ -330,7 +330,7 @@ class GenericLlmProviderTest {
 
         val provider = GenericLlmProvider(client)
         val openAiSettings = LlmSettings(
-            baseUrl = "https://api.minimax.cn/v1",
+            baseUrl = "https://api.openai.com/v1",
             model = "gpt-4o"
         )
         val result = provider.analyze(defaultBatch, openAiSettings, "test-key")

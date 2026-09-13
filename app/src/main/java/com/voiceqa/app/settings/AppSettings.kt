@@ -16,7 +16,6 @@ data class AppSettings(
     val maximumChars: Int = 120,
     val minimumChars: Int = 8,
     val contextChars: Int = 200,
-    val ttsEnabled: Boolean = true,
     val continuousMode: Boolean = true,
     val historyRetention: HistoryRetentionPolicy = HistoryRetentionPolicy.PERMANENT,
     val useFakeLlm: Boolean = false

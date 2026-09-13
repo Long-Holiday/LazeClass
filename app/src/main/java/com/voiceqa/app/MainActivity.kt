@@ -10,6 +10,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -19,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.core.content.ContextCompat
 import com.voiceqa.app.ui.history.HistoryScreen
 import com.voiceqa.app.ui.history.HistoryViewModel
@@ -60,16 +65,33 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme {
+                var isScreenFlipped by remember { mutableStateOf(false) }
+                val rotationAngle by animateFloatAsState(
+                    targetValue = if (isScreenFlipped) 180f else 0f,
+                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                    label = "screen_flip_rotation"
+                )
+
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AppNavigation(
-                        homeViewModel = homeViewModel,
-                        settingsViewModel = settingsViewModel,
-                        historyViewModel = historyViewModel,
-                        onStartListening = { startListeningWithPermission() }
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                rotationZ = rotationAngle
+                            }
+                    ) {
+                        AppNavigation(
+                            homeViewModel = homeViewModel,
+                            settingsViewModel = settingsViewModel,
+                            historyViewModel = historyViewModel,
+                            onStartListening = { startListeningWithPermission() },
+                            isScreenFlipped = isScreenFlipped,
+                            onToggleScreenFlip = { isScreenFlipped = !isScreenFlipped }
+                        )
+                    }
                 }
             }
         }
@@ -117,7 +139,9 @@ fun AppNavigation(
     homeViewModel: HomeViewModel,
     settingsViewModel: SettingsViewModel,
     historyViewModel: HistoryViewModel,
-    onStartListening: () -> Unit
+    onStartListening: () -> Unit,
+    isScreenFlipped: Boolean = false,
+    onToggleScreenFlip: () -> Unit = {}
 ) {
     var currentScreen by remember { mutableStateOf(Screen.HOME) }
 
@@ -127,7 +151,9 @@ fun AppNavigation(
                 viewModel = homeViewModel,
                 onNavigateToSettings = { currentScreen = Screen.SETTINGS },
                 onNavigateToHistory = { currentScreen = Screen.HISTORY },
-                onStartListening = onStartListening
+                onStartListening = onStartListening,
+                isScreenFlipped = isScreenFlipped,
+                onToggleScreenFlip = onToggleScreenFlip
             )
             Screen.SETTINGS -> SettingsScreen(
                 viewModel = settingsViewModel,

@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FlashOn
@@ -29,6 +28,7 @@ import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -77,7 +77,9 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     onNavigateToSettings: () -> Unit,
     onNavigateToHistory: () -> Unit,
-    onStartListening: () -> Unit
+    onStartListening: () -> Unit,
+    isScreenFlipped: Boolean = false,
+    onToggleScreenFlip: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showClearDialog by remember { mutableStateOf(false) }
@@ -124,6 +126,13 @@ fun HomeScreen(
                     )
                 },
                 actions = {
+                    IconButton(onClick = onToggleScreenFlip) {
+                        Icon(
+                            imageVector = Icons.Default.ScreenRotation,
+                            contentDescription = if (isScreenFlipped) "恢复正常方向" else "上下反转界面",
+                            tint = if (isScreenFlipped) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     IconButton(onClick = { showClearDialog = true }) {
                         Icon(
                             imageVector = Icons.Default.DeleteOutline,
@@ -236,10 +245,7 @@ fun HomeScreen(
                             items = uiState.messages,
                             key = { it.id }
                         ) { message ->
-                            ChatMessageBubble(
-                                message = message,
-                                onSpeak = { viewModel.onSpeakText(message.content) }
-                            )
+                            ChatMessageBubble(message = message)
                         }
 
                         if (isThinking) {
@@ -378,8 +384,7 @@ fun StateIndicatorCard(
 
 @Composable
 fun ChatMessageBubble(
-    message: ChatMessageItem,
-    onSpeak: () -> Unit
+    message: ChatMessageItem
 ) {
     val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val formattedTime = remember(message.timestamp) {
@@ -487,31 +492,11 @@ fun ChatMessageBubble(
 
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = formattedTime,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-
-                            if (!isError && message.content.isNotBlank()) {
-                                IconButton(
-                                    onClick = onSpeak,
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                                        contentDescription = "朗读回答",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
+                        Text(
+                            text = formattedTime,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
                     }
                 }
             }
