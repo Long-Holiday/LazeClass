@@ -17,6 +17,7 @@ import com.voiceqa.app.data.SegmentStatus
 import com.voiceqa.app.data.SessionDao
 import com.voiceqa.app.data.SessionEntity
 import com.voiceqa.app.data.TranscriptSegmentEntity
+import com.voiceqa.app.llm.LlmPromptFactory
 import com.voiceqa.app.llm.LlmProvider
 import com.voiceqa.app.llm.LlmSettings
 import com.voiceqa.app.security.ApiKeyStore
@@ -37,6 +38,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -404,6 +406,38 @@ class SessionCoordinatorTest {
 
         assertTrue(fakeSessionDao.clearAllCalled)
         assertTrue(fakeSessionDao.sessions.isEmpty())
+    }
+
+    @Test
+    fun testOnFinalTranscriptImmediatelyTriggersAiAnalysisWithoutStopping() = runBlocking {
+        var analyzedBatch: AnalysisBatch? = null
+        val testLlmProvider = object : LlmProvider {
+            override suspend fun analyze(batch: AnalysisBatch, settings: LlmSettings, apiKey: String?): AnalysisResult {
+                analyzedBatch = batch
+                return AnalysisResult(
+                    hasQuestion = true,
+                    questions = listOf(QuestionAnswer("你好", "你好！很高兴为您服务。")),
+                    message = "已收到回复"
+                )
+            }
+        }
+
+        val coordinator = createCoordinator(llmProvider = testLlmProvider)
+        coordinator.startSession()
+
+        // 发送短文本，只有2个字
+        coordinator.onFinalTranscript("你好")
+
+        // 验证：不需要调用 stopSession()，AI分析已被立即触发
+        val messages = coordinator.chatMessages.value
+        assertEquals(2, messages.size)
+        assertEquals(ChatSender.USER, messages[0].sender)
+        assertEquals("你好", messages[0].content)
+        assertEquals(ChatSender.ASSISTANT, messages[1].sender)
+        assertEquals("你好！很高兴为您服务。", messages[1].content)
+        assertNotNull(analyzedBatch)
+        assertEquals("[1] 你好", analyzedBatch?.newText)
+        assertEquals("你好", LlmPromptFactory.createUserPrompt(analyzedBatch!!))
     }
 
     // --- Test Doubles / Fakes ---

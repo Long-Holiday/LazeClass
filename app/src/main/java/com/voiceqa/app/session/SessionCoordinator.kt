@@ -300,24 +300,11 @@ class SessionCoordinator(
             "${_confirmedTranscript.value}\n$trimmed"
         }
 
-        val policy = currentPolicy()
         val pendingChars = transcriptBuffer.pendingChars()
         _analysisState.value = AnalysisState.Waiting(pendingChars)
 
-        // 3. Evaluate batching triggers
-        when {
-            pendingChars >= policy.maximumChars -> {
-                Log.d(TAG, "Triggering flush: MAXIMUM_CHARS reached ($pendingChars >= ${policy.maximumChars})")
-                flush(FlushReason.MAXIMUM_CHARS, force = false)
-            }
-            else -> {
-                Log.d(TAG, "Scheduling flush: silenceDelay=${policy.silenceTimeoutMs}ms, maxWait=${policy.maximumWaitMs}ms")
-                batchScheduler.schedule(
-                    silenceDelayMs = policy.silenceTimeoutMs,
-                    maximumDelayMs = policy.maximumWaitMs
-                )
-            }
-        }
+        // 3. 聊天模式下用户发言转写完成即立刻触发 AI 分析处理
+        flush(FlushReason.USER_MANUAL, force = true)
     }
 
     private suspend fun flush(reason: FlushReason, force: Boolean) {
