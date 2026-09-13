@@ -34,8 +34,8 @@ open class SettingsRepository(private val context: Context? = null) {
     open val settingsFlow: Flow<AppSettings> by lazy {
         context!!.settingsDataStore.data.map { prefs ->
             AppSettings(
-                baseUrl = prefs[PreferencesKeys.BASE_URL] ?: "https://api.openai.com/v1",
-                model = prefs[PreferencesKeys.MODEL] ?: "gpt-3.5-turbo",
+                baseUrl = prefs[PreferencesKeys.BASE_URL] ?: "https://api.minimax.cn/v1",
+                model = prefs[PreferencesKeys.MODEL] ?: "MiniMax-M3",
                 language = prefs[PreferencesKeys.LANGUAGE] ?: "zh-CN",
                 silenceTimeoutMs = prefs[PreferencesKeys.SILENCE_TIMEOUT_MS] ?: 1_500L,
                 maximumWaitMs = prefs[PreferencesKeys.MAXIMUM_WAIT_MS] ?: 10_000L,

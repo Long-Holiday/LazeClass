@@ -102,7 +102,7 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = uiState.model,
                         onValueChange = { viewModel.onModelChanged(it) },
-                        label = { Text("模型名称 (如 gpt-3.5-turbo, deepseek-chat)") },
+                        label = { Text("模型名称 (如 MiniMax-M3, deepseek-chat)") },
                         modifier = Modifier.fillMaxWidth()
                     )
 

@@ -4,8 +4,8 @@ import com.voiceqa.app.batching.AnalysisBatch
 import com.voiceqa.app.batching.AnalysisResult
 
 data class LlmSettings(
-    val baseUrl: String = "https://api.openai.com/v1",
-    val model: String = "gpt-3.5-turbo",
+    val baseUrl: String = "https://api.minimax.cn/v1",
+    val model: String = "MiniMax-M3",
     val maximumOutputTokens: Int = 300,
     val temperature: Double = 0.1
 )

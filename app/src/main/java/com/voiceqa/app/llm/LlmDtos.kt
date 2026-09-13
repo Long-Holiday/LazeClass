@@ -4,6 +4,11 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class OpenAiThinking(
+    val type: String = "disabled"
+)
+
+@Serializable
 data class OpenAiChatRequest(
     val model: String,
     val messages: List<OpenAiMessage>,
@@ -11,7 +16,8 @@ data class OpenAiChatRequest(
     @SerialName("max_tokens")
     val maxTokens: Int = 300,
     @SerialName("response_format")
-    val responseFormat: OpenAiResponseFormat? = null
+    val responseFormat: OpenAiResponseFormat? = null,
+    val thinking: OpenAiThinking? = null
 )
 
 @Serializable
@@ -22,7 +28,9 @@ data class OpenAiResponseFormat(
 @Serializable
 data class OpenAiMessage(
     val role: String,
-    val content: String
+    val content: String? = null,
+    @SerialName("reasoning_content")
+    val reasoningContent: String? = null
 )
 
 @Serializable

@@ -61,6 +61,9 @@ class GenericLlmProvider(
         val systemPrompt = LlmPromptFactory.SYSTEM_PROMPT
         val userPrompt = LlmPromptFactory.createUserPrompt(batch)
 
+        val isMiniMax = isMiniMaxRequest(settings.model, settings.baseUrl)
+        val thinking = if (isMiniMax) OpenAiThinking(type = "disabled") else null
+
         val requestPayload = OpenAiChatRequest(
             model = settings.model,
             messages = listOf(
@@ -69,7 +72,8 @@ class GenericLlmProvider(
             ),
             temperature = settings.temperature,
             maxTokens = settings.maximumOutputTokens,
-            responseFormat = null
+            responseFormat = null,
+            thinking = thinking
         )
 
         val requestJson = json.encodeToString(requestPayload)
@@ -198,8 +202,9 @@ class GenericLlmProvider(
                 )
             }
 
-            val rawAssistantContent = chatResponse.choices.firstOrNull()?.message?.content?.ifBlank { null }
-                ?: "（模型未返回任何内容）"
+            val rawMessageContent = chatResponse.choices.firstOrNull()?.message?.content
+            val strippedContent = rawMessageContent?.let { stripThinkingTags(it) }?.ifBlank { null }
+            val rawAssistantContent = strippedContent ?: "（模型未返回任何内容）"
 
             return AnalysisResult(
                 hasQuestion = true,
@@ -213,5 +218,16 @@ class GenericLlmProvider(
                 message = "已收到回复"
             )
         }
+    }
+
+    internal fun isMiniMaxRequest(model: String, baseUrl: String): Boolean {
+        return model.contains("minimax", ignoreCase = true) ||
+            baseUrl.contains("minimax", ignoreCase = true)
+    }
+
+    internal fun stripThinkingTags(content: String): String {
+        val closedRemoved = content.replace(Regex("""<think>[\s\S]*?</think>""", RegexOption.IGNORE_CASE), "")
+        val unclosedRemoved = closedRemoved.replace(Regex("""<think>[\s\S]*$""", RegexOption.IGNORE_CASE), "")
+        return unclosedRemoved.trim()
     }
 }

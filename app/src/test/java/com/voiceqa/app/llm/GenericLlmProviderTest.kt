@@ -27,7 +27,7 @@ class GenericLlmProviderTest {
     )
 
     private val defaultSettings = LlmSettings(
-        baseUrl = "https://api.openai.com/v1",
+        baseUrl = "https://api.minimax.cn/v1",
         model = "gpt-4o-mini"
     )
 
@@ -274,5 +274,134 @@ class GenericLlmProviderTest {
         val answer = result.questions[0].answer
         val responseSnippet = answer.substringAfter("响应: ")
         assertEquals(500, responseSnippet.length)
+    }
+
+    @Test
+    fun testMiniMaxModelIncludesThinkingDisabledInRequest() = runBlocking {
+        var capturedBody = ""
+        val client = createMockClient { req ->
+            val buffer = okio.Buffer()
+            req.body?.writeTo(buffer)
+            capturedBody = buffer.readUtf8()
+            mockResponse(req, 200, """{"choices":[{"message":{"role":"assistant","content":"直接回答"}}]}""")
+        }
+
+        val provider = GenericLlmProvider(client)
+        val miniMaxSettings = LlmSettings(
+            baseUrl = "https://api.minimaxi.com/v1",
+            model = "MiniMax-M3"
+        )
+        val result = provider.analyze(defaultBatch, miniMaxSettings, "test-key")
+
+        assertTrue("MiniMax 请求体应包含 thinking disabled 参数", capturedBody.contains(""""thinking":{"type":"disabled"}"""))
+        assertEquals("直接回答", result.questions[0].answer)
+    }
+
+    @Test
+    fun testMiniMaxBaseUrlIncludesThinkingDisabledInRequest() = runBlocking {
+        var capturedBody = ""
+        val client = createMockClient { req ->
+            val buffer = okio.Buffer()
+            req.body?.writeTo(buffer)
+            capturedBody = buffer.readUtf8()
+            mockResponse(req, 200, """{"choices":[{"message":{"role":"assistant","content":"直接回答"}}]}""")
+        }
+
+        val provider = GenericLlmProvider(client)
+        val miniMaxSettings = LlmSettings(
+            baseUrl = "https://api.minimax.chat/v1",
+            model = "custom-model"
+        )
+        val result = provider.analyze(defaultBatch, miniMaxSettings, "test-key")
+
+        assertTrue("MiniMax BaseUrl 应触发 thinking disabled 参数", capturedBody.contains(""""thinking":{"type":"disabled"}"""))
+        assertEquals("直接回答", result.questions[0].answer)
+    }
+
+    @Test
+    fun testNonMiniMaxModelOmitsThinkingParameter() = runBlocking {
+        var capturedBody = ""
+        val client = createMockClient { req ->
+            val buffer = okio.Buffer()
+            req.body?.writeTo(buffer)
+            capturedBody = buffer.readUtf8()
+            mockResponse(req, 200, """{"choices":[{"message":{"role":"assistant","content":"直接回答"}}]}""")
+        }
+
+        val provider = GenericLlmProvider(client)
+        val openAiSettings = LlmSettings(
+            baseUrl = "https://api.minimax.cn/v1",
+            model = "gpt-4o"
+        )
+        val result = provider.analyze(defaultBatch, openAiSettings, "test-key")
+
+        assertFalse("非 MiniMax 请求不应包含 thinking 字段", capturedBody.contains("thinking"))
+        assertEquals("直接回答", result.questions[0].answer)
+    }
+
+    @Test
+    fun testResponseContentWithThinkingTagsIsStripped() = runBlocking {
+        val jsonResponse = """
+            {
+              "id": "chatcmpl-minimax",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": "<think>\n这里是模型的内部思考过程：\n1. 分析问题\n2. 给出答案\n</think>\n机器学习是人工智能的一个分支。"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val client = createMockClient { req ->
+            mockResponse(req, 200, jsonResponse)
+        }
+
+        val provider = GenericLlmProvider(client)
+        val miniMaxSettings = LlmSettings(
+            baseUrl = "https://api.minimaxi.com/v1",
+            model = "MiniMax-M3"
+        )
+        val result = provider.analyze(defaultBatch, miniMaxSettings, "test-key")
+
+        assertEquals("机器学习是人工智能的一个分支。", result.questions[0].answer)
+        assertFalse(result.questions[0].answer.contains("<think>"))
+        assertFalse(result.questions[0].answer.contains("内部思考过程"))
+    }
+
+    @Test
+    fun testUnclosedThinkingTagIsCleanedSafely() = runBlocking {
+        val jsonResponse = """
+            {
+              "id": "chatcmpl-minimax-truncated",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": "<think>\n截断在思考过程中..."
+                  },
+                  "finish_reason": "length"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val client = createMockClient { req ->
+            mockResponse(req, 200, jsonResponse)
+        }
+
+        val provider = GenericLlmProvider(client)
+        val miniMaxSettings = LlmSettings(
+            baseUrl = "https://api.minimaxi.com/v1",
+            model = "MiniMax-M3"
+        )
+        val result = provider.analyze(defaultBatch, miniMaxSettings, "test-key")
+
+        assertEquals("（模型未返回任何内容）", result.questions[0].answer)
     }
 }

@@ -12,8 +12,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 data class SettingsUiState(
-    val baseUrl: String = "https://api.openai.com/v1",
-    val model: String = "gpt-3.5-turbo",
+    val baseUrl: String = "https://api.minimax.cn/v1",
+    val model: String = "MiniMax-M3",
     val apiKey: String = "",
     val hasSavedApiKey: Boolean = false,
     val asrApiKey: String = "",

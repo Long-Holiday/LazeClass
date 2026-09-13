@@ -8,8 +8,8 @@ enum class HistoryRetentionPolicy {
 }
 
 data class AppSettings(
-    val baseUrl: String = "https://api.openai.com/v1",
-    val model: String = "gpt-3.5-turbo",
+    val baseUrl: String = "https://api.minimax.cn/v1",
+    val model: String = "MiniMax-M3",
     val language: String = "zh-CN",
     val silenceTimeoutMs: Long = 1_500L,
     val maximumWaitMs: Long = 10_000L,
