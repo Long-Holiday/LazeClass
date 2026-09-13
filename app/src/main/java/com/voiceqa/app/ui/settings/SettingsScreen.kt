@@ -173,6 +173,37 @@ fun SettingsScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             ) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = uiState.asrApiKey,
+                        onValueChange = { viewModel.onAsrApiKeyChanged(it) },
+                        label = { Text("MiniMax ASR API Key") },
+                        placeholder = {
+                            if (uiState.hasSavedAsrApiKey) Text("已配置安全密钥（留空保持不变）") else Text("请输入 MiniMax API Key")
+                        },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (uiState.hasSavedAsrApiKey) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("MiniMax ASR 密钥已加密保存", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                            OutlinedButton(onClick = { viewModel.clearAsrApiKey() }) {
+                                Text("清除 ASR 密钥")
+                            }
+                        }
+                    }
+
+                    Text(
+                        "语音会按停顿切段并上传至 MiniMax，识别结果将在网络请求完成后显示。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,

@@ -38,12 +38,18 @@ class MainActivity : ComponentActivity() {
     private val homeViewModel: HomeViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
     private val historyViewModel: HistoryViewModel by viewModels()
+    private var startListeningAfterPermissionGrant = false
 
     private val requestAudioPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val recordAudioGranted = permissions[Manifest.permission.RECORD_AUDIO] ?: false
-        if (!recordAudioGranted) {
+        val recordAudioGranted = permissions[Manifest.permission.RECORD_AUDIO]
+            ?: hasRecordAudioPermission()
+        if (recordAudioGranted && startListeningAfterPermissionGrant) {
+            startListeningAfterPermissionGrant = false
+            homeViewModel.onStartListening()
+        } else if (!recordAudioGranted) {
+            startListeningAfterPermissionGrant = false
             Toast.makeText(this, "需要麦克风录音权限才能使用语音问答功能", Toast.LENGTH_LONG).show()
         }
     }
@@ -62,7 +68,7 @@ class MainActivity : ComponentActivity() {
                         homeViewModel = homeViewModel,
                         settingsViewModel = settingsViewModel,
                         historyViewModel = historyViewModel,
-                        onRequestRecordPermission = { checkAndRequestPermissions() }
+                        onStartListening = { startListeningWithPermission() }
                     )
                 }
             }
@@ -90,6 +96,20 @@ class MainActivity : ComponentActivity() {
             requestAudioPermissionLauncher.launch(permissionsToRequest.toTypedArray())
         }
     }
+
+    private fun hasRecordAudioPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun startListeningWithPermission() {
+        if (hasRecordAudioPermission()) {
+            homeViewModel.onStartListening()
+            return
+        }
+
+        startListeningAfterPermissionGrant = true
+        requestAudioPermissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+    }
 }
 
 @Composable
@@ -97,7 +117,7 @@ fun AppNavigation(
     homeViewModel: HomeViewModel,
     settingsViewModel: SettingsViewModel,
     historyViewModel: HistoryViewModel,
-    onRequestRecordPermission: () -> Unit
+    onStartListening: () -> Unit
 ) {
     var currentScreen by remember { mutableStateOf(Screen.HOME) }
 
@@ -107,7 +127,7 @@ fun AppNavigation(
                 viewModel = homeViewModel,
                 onNavigateToSettings = { currentScreen = Screen.SETTINGS },
                 onNavigateToHistory = { currentScreen = Screen.HISTORY },
-                onRequestRecordPermission = onRequestRecordPermission
+                onStartListening = onStartListening
             )
             Screen.SETTINGS -> SettingsScreen(
                 viewModel = settingsViewModel,

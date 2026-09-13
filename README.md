@@ -1,6 +1,6 @@
 # VoiceQA - Android 端侧实时语音转写与智能问答应用 (V1)
 
-VoiceQA 是一个单 APK、客户端 BYOK 直连 LLM、基于端侧语音转文字（SpeechRecognizer）的智能问答 Android 应用。
+VoiceQA 是一个单 APK、客户端 BYOK 直连 LLM、基于 MiniMax ASR 的智能问答 Android 应用。
 支持按停顿/时间/长度批量发送，并由 LLM 同时完成问题识别与精准回答。
 
 ## 架构与技术选型
@@ -9,7 +9,7 @@ VoiceQA 是一个单 APK、客户端 BYOK 直连 LLM、基于端侧语音转文�
 - **UI 框架**: Jetpack Compose + Material 3
 - **架构模式**: MVVM + Repository
 - **异步控制**: Kotlin Coroutines、Flow、Channel（单消费者请求队列）
-- **语音识别**: Android `SpeechRecognizer`（API 31+ 优先启用端侧识别 `createOnDeviceSpeechRecognizer`，并带持续监听自愈重启）
+- **语音识别**: MiniMax `asr-1.0`（16 kHz 单声道采集、端侧静音分段、云端文件转写）
 - **网络通信**: OkHttp (超时与自动重试策略) + Kotlinx Serialization JSON
 - **本地存储**: Room Database（会话、文本段落、问答历史三张表）
 - **应用配置**: AndroidX DataStore Preferences
@@ -45,7 +45,8 @@ app/
 │
 ├─ speech/
 │  ├─ SpeechToText.kt                       // 语音识别抽象接口与事件
-│  ├─ AndroidSpeechRecognizer.kt            // 封装 SpeechRecognizer、支持端侧识别与重连
+│  ├─ MiniMaxSpeechRecognizer.kt            // 录音、静音分段与 MiniMax ASR 上传队列
+│  ├─ MiniMaxAsrProtocol.kt                 // 语言映射、响应解析与 WAV 封装
 │  └─ TranscriptNormalizer.kt               // 问句标点空格规范化与 5 分钟 SHA-256 去重
 │
 ├─ batching/
@@ -102,12 +103,17 @@ app/
    - 对规范化字符串计算 SHA-256，5 分钟内相同问题不重复展示与朗读。
 
 4. **安全 BYOK 密钥管理**
-   - 用户在设置页输入自有 API Key。
+   - 用户在设置页分别输入 LLM API Key 与 MiniMax ASR API Key。
    - 由 `AndroidKeyStore` 生成硬件保护的 AES-256 密钥（AES/GCM/NoPadding）。
    - 密文保存于应用私有目录，配置 `data_extraction_rules.xml` 禁止云端自动备份。
    - 严禁在日志、数据库中打印 Authorization Header 或明文 Key。
 
-5. **离线测试模式 (Fake LLM)**
+5. **MiniMax ASR 近实时转写**
+   - 使用 `AudioRecord` 采集 16 kHz、16-bit、单声道 PCM。
+   - 在本地根据停顿切分音频，最长约 15 秒，以 WAV 文件调用 `/v1/speech_to_text`。
+   - MiniMax 接口是文件上传式识别；每段文本会在停顿并完成网络请求后显示，不是逐字上屏。
+
+6. **离线测试模式 (Fake LLM)**
    - 在设置页中勾选“离线模拟提供者 (Fake LLM)”，可以在无网络或无 API Key 环境下测试语音输入、问答展示、TTS 朗读与会话保存。
 
 ---

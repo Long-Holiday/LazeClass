@@ -60,10 +60,9 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     onNavigateToSettings: () -> Unit,
     onNavigateToHistory: () -> Unit,
-    onRequestRecordPermission: () -> Unit
+    onStartListening: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val isListening = uiState.captureState is CaptureState.Listening
 
     Scaffold(
         topBar = {
@@ -201,11 +200,8 @@ fun HomeScreen(
 
             // 4. Bottom Control Bar
             BottomActionBar(
-                isListening = isListening,
-                onStart = {
-                    onRequestRecordPermission()
-                    viewModel.onStartListening()
-                },
+                captureState = uiState.captureState,
+                onStart = onStartListening,
                 onStop = { viewModel.onStopListening() },
                 onFlush = { viewModel.onFlushNow() }
             )
@@ -351,7 +347,7 @@ fun QuestionAnswerCard(
 
 @Composable
 fun BottomActionBar(
-    isListening: Boolean,
+    captureState: CaptureState,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onFlush: () -> Unit
@@ -363,27 +359,29 @@ fun BottomActionBar(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (!isListening) {
+        if (captureState !is CaptureState.Listening && captureState !is CaptureState.Stopping) {
             Button(
                 onClick = onStart,
+                enabled = captureState !is CaptureState.Starting,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
                 Icon(Icons.Default.Mic, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("开始监听")
+                Text(if (captureState is CaptureState.Starting) "启动中..." else "开始监听")
             }
         } else {
             Button(
                 onClick = onStop,
+                enabled = captureState is CaptureState.Listening,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
             ) {
                 Icon(Icons.Default.MicOff, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("停止监听")
+                Text(if (captureState is CaptureState.Stopping) "停止中..." else "停止监听")
             }
         }
 

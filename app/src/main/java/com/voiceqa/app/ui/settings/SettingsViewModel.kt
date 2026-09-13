@@ -16,6 +16,8 @@ data class SettingsUiState(
     val model: String = "gpt-3.5-turbo",
     val apiKey: String = "",
     val hasSavedApiKey: Boolean = false,
+    val asrApiKey: String = "",
+    val hasSavedAsrApiKey: Boolean = false,
     val language: String = "zh-CN",
     val silenceTimeoutMs: Long = 1_500L,
     val maximumWaitMs: Long = 10_000L,
@@ -34,18 +36,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val app = application as VoiceQaApplication
     private val settingsRepository = app.settingsRepository
     private val apiKeyStore = app.apiKeyStore
+    private val asrApiKeyStore = app.asrApiKeyStore
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
         viewModelScope.launch {
-            val savedKey = apiKeyStore.load()
             settingsRepository.settingsFlow.collect { settings ->
+                val hasSavedKey = !apiKeyStore.load().isNullOrBlank()
+                val hasSavedAsrKey = !asrApiKeyStore.load().isNullOrBlank()
                 _uiState.value = _uiState.value.copy(
                     baseUrl = settings.baseUrl,
                     model = settings.model,
-                    hasSavedApiKey = !savedKey.isNullOrBlank(),
+                    hasSavedApiKey = hasSavedKey,
+                    hasSavedAsrApiKey = hasSavedAsrKey,
                     language = settings.language,
                     silenceTimeoutMs = settings.silenceTimeoutMs,
                     maximumWaitMs = settings.maximumWaitMs,
@@ -71,6 +76,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun onApiKeyChanged(key: String) {
         _uiState.value = _uiState.value.copy(apiKey = key)
+    }
+
+    fun onAsrApiKeyChanged(key: String) {
+        _uiState.value = _uiState.value.copy(asrApiKey = key)
     }
 
     fun onLanguageChanged(lang: String) {
@@ -111,6 +120,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             if (state.apiKey.isNotBlank()) {
                 apiKeyStore.save(state.apiKey)
             }
+            if (state.asrApiKey.isNotBlank()) {
+                asrApiKeyStore.save(state.asrApiKey)
+            }
 
             settingsRepository.updateSettings(
                 AppSettings(
@@ -130,9 +142,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             )
 
             val updatedKey = apiKeyStore.load()
+            val updatedAsrKey = asrApiKeyStore.load()
             _uiState.value = _uiState.value.copy(
                 hasSavedApiKey = !updatedKey.isNullOrBlank(),
+                hasSavedAsrApiKey = !updatedAsrKey.isNullOrBlank(),
                 apiKey = "",
+                asrApiKey = "",
                 isSavedMessageVisible = true
             )
         }
@@ -144,6 +159,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             _uiState.value = _uiState.value.copy(
                 hasSavedApiKey = false,
                 apiKey = ""
+            )
+        }
+    }
+
+    fun clearAsrApiKey() {
+        viewModelScope.launch {
+            asrApiKeyStore.clear()
+            _uiState.value = _uiState.value.copy(
+                hasSavedAsrApiKey = false,
+                asrApiKey = ""
             )
         }
     }

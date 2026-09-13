@@ -20,20 +20,22 @@ interface ApiKeyStore {
 }
 
 class AndroidKeystoreApiKeyStore(
-    private val context: Context
+    private val context: Context,
+    private val keyAlias: String = DEFAULT_KEY_ALIAS,
+    private val fileName: String = DEFAULT_FILE_NAME
 ) : ApiKeyStore {
 
     companion object {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-        private const val KEY_ALIAS = "voiceqa_api_key"
+        private const val DEFAULT_KEY_ALIAS = "voiceqa_api_key"
         private const val CIPHER_TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_LENGTH = 128
         private const val GCM_IV_LENGTH = 12
-        private const val FILE_NAME = "api_key.enc"
+        private const val DEFAULT_FILE_NAME = "api_key.enc"
     }
 
     private val keyFile: File
-        get() = File(context.filesDir, FILE_NAME)
+        get() = File(context.filesDir, fileName)
 
     override suspend fun save(apiKey: String): Unit = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) {
@@ -103,8 +105,8 @@ class AndroidKeystoreApiKeyStore(
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
         keyStore.load(null)
 
-        if (keyStore.containsAlias(KEY_ALIAS)) {
-            val entry = keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry
+        if (keyStore.containsAlias(keyAlias)) {
+            val entry = keyStore.getEntry(keyAlias, null) as? KeyStore.SecretKeyEntry
             if (entry != null) {
                 return entry.secretKey
             }
@@ -116,7 +118,7 @@ class AndroidKeystoreApiKeyStore(
         )
 
         val spec = KeyGenParameterSpec.Builder(
-            KEY_ALIAS,
+            keyAlias,
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
         )
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)

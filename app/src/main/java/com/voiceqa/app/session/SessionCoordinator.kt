@@ -22,12 +22,13 @@ import com.voiceqa.app.llm.LlmSettings
 import com.voiceqa.app.security.ApiKeyStore
 import com.voiceqa.app.settings.AppSettings
 import com.voiceqa.app.settings.SettingsRepository
-import com.voiceqa.app.speech.AndroidSpeechRecognizer
+import com.voiceqa.app.speech.MiniMaxSpeechRecognizer
 import com.voiceqa.app.speech.SpeechEvent
 import com.voiceqa.app.speech.SpeechToText
 import com.voiceqa.app.speech.TranscriptNormalizer
 import com.voiceqa.app.tts.TextToSpeechManager
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -36,6 +37,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
@@ -44,6 +47,7 @@ class SessionCoordinator(
     private val database: AppDatabase,
     private val settingsRepository: SettingsRepository,
     private val apiKeyStore: ApiKeyStore,
+    private val asrApiKeyStore: ApiKeyStore = apiKeyStore,
     private val speechToText: SpeechToText? = null,
     private val llmProvider: LlmProvider? = null,
     private val ttsManager: TextToSpeechManager? = null,
@@ -57,7 +61,11 @@ class SessionCoordinator(
     private val segmentDao = database.segmentDao()
     private val answerDao = database.answerDao()
 
-    private val actualSpeechToText = speechToText ?: AndroidSpeechRecognizer(context, externalScope)
+    private val actualSpeechToText = speechToText ?: MiniMaxSpeechRecognizer(
+        context = context,
+        scope = externalScope,
+        apiKeyStore = asrApiKeyStore
+    )
     private val actualLlmProvider = llmProvider ?: GenericLlmProvider()
     private val fakeLlmProvider = FakeLlmProvider()
     private val actualTtsManager = ttsManager ?: TextToSpeechManager(context)
@@ -85,6 +93,7 @@ class SessionCoordinator(
     private var currentSessionId: String? = null
     private var speechCollectJob: Job? = null
     private var currentSettings: AppSettings = AppSettings()
+    private val sessionTransitionMutex = Mutex()
 
     private val analysisQueue = AnalysisQueue(externalScope) { batch ->
         analyzeOneBatch(batch)
@@ -113,8 +122,10 @@ class SessionCoordinator(
         )
     }
 
-    suspend fun startSession() {
-        if (_captureState.value is CaptureState.Listening) return
+    suspend fun startSession(): Boolean = sessionTransitionMutex.withLock {
+        if (_captureState.value !is CaptureState.Idle &&
+            _captureState.value !is CaptureState.Error
+        ) return@withLock _captureState.value is CaptureState.Listening
 
         _captureState.value = CaptureState.Starting
         val sessionId = UUID.randomUUID().toString()
@@ -141,24 +152,34 @@ class SessionCoordinator(
         try {
             actualSpeechToText.start(currentSettings.language)
             _captureState.value = CaptureState.Listening("")
+            true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start speech recognizer", e)
             _captureState.value = CaptureState.Error(e.localizedMessage ?: "启动录音失败")
+            false
         }
     }
 
-    suspend fun stopSession() {
-        if (_captureState.value is CaptureState.Idle) return
+    suspend fun stopSession() = sessionTransitionMutex.withLock {
+        if (_captureState.value is CaptureState.Idle ||
+            _captureState.value is CaptureState.Stopping
+        ) return@withLock
 
         _captureState.value = CaptureState.Stopping
-        speechCollectJob?.cancel()
-        speechCollectJob = null
 
+        var pendingPartial: String? = null
         try {
-            actualSpeechToText.stop()
+            pendingPartial = actualSpeechToText.stop()
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping speech recognizer", e)
         }
+
+        // A platform recognizer does not guarantee a final callback after stop.
+        // Preserve the last partial result before forcing the remaining batch.
+        pendingPartial?.let { onFinalTranscript(it) }
+
+        speechCollectJob?.cancel()
+        speechCollectJob = null
 
         // Force flush remaining segments
         flush(FlushReason.STOP_LISTENING, force = true)
@@ -180,7 +201,9 @@ class SessionCoordinator(
 
     private fun listenToSpeechEvents() {
         speechCollectJob?.cancel()
-        speechCollectJob = externalScope.launch {
+        // Register the SharedFlow subscriber before startListening(). Without an
+        // undispatched start, very early partial/final callbacks can be dropped.
+        speechCollectJob = externalScope.launch(start = CoroutineStart.UNDISPATCHED) {
             actualSpeechToText.events.collect { event ->
                 handleSpeechEvent(event)
             }
@@ -195,7 +218,9 @@ class SessionCoordinator(
             }
 
             is SpeechEvent.Final -> {
-                _captureState.value = CaptureState.Listening(partialText = "")
+                if (_captureState.value is CaptureState.Listening) {
+                    _captureState.value = CaptureState.Listening(partialText = "")
+                }
                 onFinalTranscript(event.text)
             }
 
@@ -206,8 +231,15 @@ class SessionCoordinator(
                 }
             }
 
+            is SpeechEvent.Status -> {
+                _lastMessage.value = event.message
+            }
+
             is SpeechEvent.Error -> {
                 Log.w(TAG, "SpeechEvent error: ${event.code} - ${event.message}")
+                if (event.code == -10) {
+                    _captureState.value = CaptureState.Error(event.message)
+                }
                 if (event.code != -1 && event.code != 7) { // Filter non-fatal timeouts
                     _lastMessage.value = "语音提示: ${event.message}"
                 }

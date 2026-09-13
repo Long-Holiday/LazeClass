@@ -18,6 +18,9 @@ class VoiceQaApplication : Application() {
     lateinit var apiKeyStore: ApiKeyStore
         private set
 
+    lateinit var asrApiKeyStore: ApiKeyStore
+        private set
+
     lateinit var sessionCoordinator: SessionCoordinator
         private set
 
@@ -27,11 +30,17 @@ class VoiceQaApplication : Application() {
         database = AppDatabase.getInstance(this)
         settingsRepository = SettingsRepository(this)
         apiKeyStore = AndroidKeystoreApiKeyStore(this)
+        asrApiKeyStore = AndroidKeystoreApiKeyStore(
+            context = this,
+            keyAlias = "voiceqa_minimax_asr_api_key",
+            fileName = "minimax_asr_api_key.enc"
+        )
         sessionCoordinator = SessionCoordinator(
             context = this,
             database = database,
             settingsRepository = settingsRepository,
-            apiKeyStore = apiKeyStore
+            apiKeyStore = apiKeyStore,
+            asrApiKeyStore = asrApiKeyStore
         )
     }
 

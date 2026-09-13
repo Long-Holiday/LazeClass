@@ -81,8 +81,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun onStartListening() {
         viewModelScope.launch {
             val isContinuous = _uiState.value.isContinuousMode
-            coordinator.startSession()
-            if (isContinuous) {
+            val started = coordinator.startSession()
+            if (started && isContinuous) {
                 CaptureForegroundService.start(getApplication())
             }
         }
