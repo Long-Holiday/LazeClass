@@ -4,7 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.voiceqa.app.VoiceQaApplication
-import com.voiceqa.app.batching.QuestionAnswer
+import com.voiceqa.app.chat.ChatMessageItem
 import com.voiceqa.app.session.CaptureForegroundService
 import com.voiceqa.app.session.CaptureState
 import kotlinx.coroutines.flow.Flow
@@ -49,10 +49,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 coordinator.captureState,
                 coordinator.analysisState,
                 coordinator.confirmedTranscript,
-                coordinator.recentAnswers,
+                coordinator.chatMessages,
                 coordinator.lastMessage,
                 settingsRepository.settingsFlow
-            ) { capture, analysis, transcript, answers, message, settings ->
+            ) { capture, analysis, transcript, messages, message, settings ->
+                val partial = when (capture) {
+                    is CaptureState.Listening -> capture.partialText
+                    else -> ""
+                }
                 val fullTranscript = when (capture) {
                     is CaptureState.Listening -> {
                         if (capture.partialText.isNotEmpty()) {
@@ -68,7 +72,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     captureState = capture,
                     analysisState = analysis,
                     transcript = fullTranscript,
-                    answers = answers,
+                    partialText = partial,
+                    messages = messages,
                     isContinuousMode = settings.continuousMode,
                     lastMessage = message
                 )
@@ -104,7 +109,13 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun onSpeakAnswer(answer: QuestionAnswer) {
-        coordinator.speakAnswer(answer.answer)
+    fun onClearChatHistory() {
+        viewModelScope.launch {
+            coordinator.clearChatHistory()
+        }
+    }
+
+    fun onSpeakText(text: String) {
+        coordinator.speakAnswer(text)
     }
 }
