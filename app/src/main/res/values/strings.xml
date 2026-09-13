@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">VoiceQA</string>
+    <string name="start_listening">开始监听</string>
+    <string name="stop_listening">停止监听</string>
+    <string name="analyze_now">立即分析</string>
+    <string name="listening_status">正在监听...</string>
+    <string name="idle_status">空闲</string>
+    <string name="analyzing_status">正在分析...</string>
+    <string name="settings">设置</string>
+    <string name="history">历史记录</string>
+    <string name="no_question_detected">本段未识别到问题</string>
+</resources>
