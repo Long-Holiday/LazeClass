@@ -3,9 +3,9 @@ package com.voiceqa.app.llm
 import android.util.Log
 import com.voiceqa.app.batching.AnalysisBatch
 import com.voiceqa.app.batching.AnalysisResult
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
+import com.voiceqa.app.batching.QuestionAnswer
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -39,7 +39,17 @@ class GenericLlmProvider(
         apiKey: String?
     ): AnalysisResult = withContext(Dispatchers.IO) {
         if (apiKey.isNullOrBlank()) {
-            throw LlmAuthException("未配置 API Key，请在设置中配置 API Key")
+            return@withContext AnalysisResult(
+                hasQuestion = true,
+                questions = listOf(
+                    QuestionAnswer(
+                        question = batch.newText,
+                        answer = "❌ [鉴权失败] 未配置 API Key，请前往“设置”检查密钥配置。",
+                        sourceSegmentIds = batch.segmentIds
+                    )
+                ),
+                message = "未配置 API Key"
+            )
         }
 
         val requestUrl = resolveUrl(settings.baseUrl)
@@ -53,33 +63,28 @@ class GenericLlmProvider(
                 OpenAiMessage(role = "user", content = userPrompt)
             ),
             temperature = settings.temperature,
-            maxTokens = settings.maximumOutputTokens
+            maxTokens = settings.maximumOutputTokens,
+            responseFormat = null
         )
 
         val requestJson = json.encodeToString(requestPayload)
 
-        // Attempt execution with at most 1 retry for network/5xx/json parse issues
-        var attempts = 0
-        val maxAttempts = 2
-
-        while (true) {
-            attempts++
-            try {
-                return@withContext executeRequest(requestUrl, requestJson, apiKey)
-            } catch (authEx: LlmAuthException) {
-                // 401/403 do not retry
-                throw authEx
-            } catch (e: Exception) {
-                if (attempts >= maxAttempts) {
-                    Log.e(TAG, "Request failed after $attempts attempts: ${e.message}")
-                    throw e
-                }
-                Log.w(TAG, "Attempt $attempts failed (${e.message}), retrying once...")
-                delay(1000)
-            }
+        try {
+            executeRequest(requestUrl, requestJson, apiKey, batch)
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected error during analyze: ${e.message}", e)
+            AnalysisResult(
+                hasQuestion = true,
+                questions = listOf(
+                    QuestionAnswer(
+                        question = batch.newText,
+                        answer = "❌ [未知错误] ${e.localizedMessage ?: e.message}",
+                        sourceSegmentIds = batch.segmentIds
+                    )
+                ),
+                message = "请求异常"
+            )
         }
-        @Suppress("UNREACHABLE_CODE")
-        throw IllegalStateException("Unexpected exit from retry loop")
     }
 
     private fun resolveUrl(baseUrl: String): String {
@@ -91,10 +96,11 @@ class GenericLlmProvider(
         }
     }
 
-    private suspend fun executeRequest(
+    private fun executeRequest(
         url: String,
         jsonBody: String,
-        apiKey: String
+        apiKey: String,
+        batch: AnalysisBatch
     ): AnalysisResult {
         val request = Request.Builder()
             .url(url)
@@ -106,43 +112,93 @@ class GenericLlmProvider(
         val response = try {
             client.newCall(request).execute()
         } catch (e: IOException) {
-            throw IOException("网络请求失败: ${e.message}", e)
+            return AnalysisResult(
+                hasQuestion = true,
+                questions = listOf(
+                    QuestionAnswer(
+                        question = batch.newText,
+                        answer = "❌ [网络异常] 无法连接到大模型服务: ${e.localizedMessage ?: e.message}\n请检查网络连接及 Base URL 配置。",
+                        sourceSegmentIds = batch.segmentIds
+                    )
+                ),
+                message = "网络异常"
+            )
         }
 
         response.use { resp ->
             val code = resp.code
             val bodyString = resp.body?.string().orEmpty()
 
-            when {
-                code == 401 || code == 403 -> {
-                    throw LlmAuthException("API Key 无效或未授权 ($code)，请检查设置中的密钥")
-                }
-                code == 429 -> {
-                    val retryAfterSeconds = resp.header("Retry-After")?.toLongOrNull() ?: 2L
-                    Log.w(TAG, "Rate limited (429), retry after $retryAfterSeconds seconds")
-                    delay(retryAfterSeconds * 1000L)
-                    throw IOException("触发请求限流 (429)")
-                }
-                code >= 500 -> {
-                    throw IOException("服务提供方服务器异常 ($code): $bodyString")
-                }
-                !resp.isSuccessful -> {
-                    throw IOException("请求失败 ($code): $bodyString")
-                }
+            if (code == 401 || code == 403) {
+                return AnalysisResult(
+                    hasQuestion = true,
+                    questions = listOf(
+                        QuestionAnswer(
+                            question = batch.newText,
+                            answer = "❌ [鉴权失败 (HTTP $code)] API Key 无效或未授权，请前往“设置”检查密钥配置。\n响应: $bodyString",
+                            sourceSegmentIds = batch.segmentIds
+                        )
+                    ),
+                    message = "鉴权失败"
+                )
+            }
+            if (code == 429) {
+                return AnalysisResult(
+                    hasQuestion = true,
+                    questions = listOf(
+                        QuestionAnswer(
+                            question = batch.newText,
+                            answer = "❌ [请求限流 (HTTP 429)] 触发频率限制，请稍后再试。\n响应: $bodyString",
+                            sourceSegmentIds = batch.segmentIds
+                        )
+                    ),
+                    message = "触发限流"
+                )
+            }
+            if (!resp.isSuccessful) {
+                return AnalysisResult(
+                    hasQuestion = true,
+                    questions = listOf(
+                        QuestionAnswer(
+                            question = batch.newText,
+                            answer = "❌ [服务异常 (HTTP $code)]\n响应: $bodyString",
+                            sourceSegmentIds = batch.segmentIds
+                        )
+                    ),
+                    message = "服务异常"
+                )
             }
 
-            // Parse chat completions response
             val chatResponse = try {
                 json.decodeFromString<OpenAiChatResponse>(bodyString)
             } catch (e: Exception) {
-                throw LlmValidationException("无法解析 OpenAI API 格式响应: ${e.message}", e)
+                return AnalysisResult(
+                    hasQuestion = true,
+                    questions = listOf(
+                        QuestionAnswer(
+                            question = batch.newText,
+                            answer = "❌ [解析异常] 无法解析大模型响应: ${e.localizedMessage ?: e.message}\n响应: $bodyString",
+                            sourceSegmentIds = batch.segmentIds
+                        )
+                    ),
+                    message = "响应解析失败"
+                )
             }
 
-            val rawAssistantContent = chatResponse.choices.firstOrNull()?.message?.content
-                ?: throw LlmValidationException("模型响应中 choices[0].message.content 为空")
+            val rawAssistantContent = chatResponse.choices.firstOrNull()?.message?.content?.ifBlank { null }
+                ?: "（模型未返回任何内容）"
 
-            // Validate and parse structured QA JSON
-            return LlmResultValidator.parseAndValidate(rawAssistantContent)
+            return AnalysisResult(
+                hasQuestion = true,
+                questions = listOf(
+                    QuestionAnswer(
+                        question = batch.newText,
+                        answer = rawAssistantContent,
+                        sourceSegmentIds = batch.segmentIds
+                    )
+                ),
+                message = "已收到回复"
+            )
         }
     }
 }

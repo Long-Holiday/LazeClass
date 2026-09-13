@@ -11,7 +11,7 @@ data class OpenAiChatRequest(
     @SerialName("max_tokens")
     val maxTokens: Int = 300,
     @SerialName("response_format")
-    val responseFormat: OpenAiResponseFormat? = OpenAiResponseFormat("json_object")
+    val responseFormat: OpenAiResponseFormat? = null
 )
 
 @Serializable

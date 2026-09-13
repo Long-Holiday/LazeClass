@@ -11,45 +11,15 @@ class FakeLlmProvider : LlmProvider {
         settings: LlmSettings,
         apiKey: String?
     ): AnalysisResult {
-        // Simulate network latency
-        delay(600)
-
-        val newText = batch.newText
-        val questions = mutableListOf<QuestionAnswer>()
-
-        val lines = newText.lines().filter { it.isNotBlank() }
-        for (line in lines) {
-            val textOnly = line.replace(Regex("^\\[\\d+\\]\\s*"), "").trim()
-            if (textOnly.contains("？") || textOnly.contains("?") ||
-                textOnly.contains("什么") || textOnly.contains("怎么") ||
-                textOnly.contains("几点") || textOnly.contains("多少") ||
-                textOnly.contains("为什么") || textOnly.contains("哪")
-            ) {
-                // Ignore if previously answered
-                if (!batch.previouslyAnswered.any { it.contains(textOnly) || textOnly.contains(it) }) {
-                    questions.add(
-                        QuestionAnswer(
-                            question = textOnly,
-                            answer = "这是针对“$textOnly”的模拟回答：根据当前讨论，相关信息已为您整理完成。",
-                            sourceSegmentIds = batch.segmentIds
-                        )
-                    )
-                }
-            }
-        }
-
-        return if (questions.isNotEmpty()) {
-            AnalysisResult(
-                hasQuestion = true,
-                questions = questions,
-                message = "已识别到 ${questions.size} 个问题"
-            )
-        } else {
-            AnalysisResult(
-                hasQuestion = false,
-                questions = emptyList(),
-                message = "未识别到问题"
-            )
-        }
+        delay(500)
+        val text = batch.newText.trim()
+        val answer = "这是离线模拟回复：已收到您发送的“$text”。"
+        return AnalysisResult(
+            hasQuestion = true,
+            questions = listOf(
+                QuestionAnswer(question = text, answer = answer, sourceSegmentIds = batch.segmentIds)
+            ),
+            message = "已模拟回复"
+        )
     }
 }
