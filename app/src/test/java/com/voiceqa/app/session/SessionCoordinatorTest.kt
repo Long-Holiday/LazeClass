@@ -440,6 +440,45 @@ class SessionCoordinatorTest {
         assertEquals("你好", LlmPromptFactory.createUserPrompt(analyzedBatch!!))
     }
 
+    @Test
+    fun testFlushNowFinalizesCurrentPartialBeforeAnalysis() = runBlocking {
+        var analyzedText: String? = null
+        val testLlmProvider = object : LlmProvider {
+            override suspend fun analyze(
+                batch: AnalysisBatch,
+                settings: LlmSettings,
+                apiKey: String?
+            ): AnalysisResult {
+                analyzedText = batch.newText
+                return AnalysisResult(
+                    hasQuestion = true,
+                    questions = listOf(QuestionAnswer(batch.newText, "已处理")),
+                    message = "已收到回复"
+                )
+            }
+        }
+        val coordinator = createCoordinator(llmProvider = testLlmProvider)
+        fakeSpeechToText.finalizeResult = "还没等到自动切段的问题"
+        coordinator.startSession()
+
+        coordinator.flushNow()
+
+        assertEquals(1, fakeSpeechToText.finalizeCalls)
+        assertTrue(analyzedText?.contains("还没等到自动切段的问题") == true)
+    }
+
+    @Test
+    fun testFailedRecognizerStartRemovesIncompleteSession() = runBlocking {
+        val coordinator = createCoordinator()
+        fakeSpeechToText.startError = IllegalStateException("录音启动失败")
+
+        assertFalse(coordinator.startSession())
+
+        assertTrue(fakeSessionDao.sessions.isEmpty())
+        assertTrue(coordinator.captureState.value is CaptureState.Error)
+        assertEquals("录音启动失败", coordinator.lastMessage.value)
+    }
+
     // --- Test Doubles / Fakes ---
 
     class FakeSessionDao : SessionDao {
@@ -674,9 +713,18 @@ class SessionCoordinatorTest {
         override val events: Flow<SpeechEvent> = eventsFlow
         var isStarted = false
         var stopResult: String? = null
+        var finalizeResult: String? = null
+        var finalizeCalls = 0
+        var startError: Exception? = null
 
         override suspend fun start(locale: String) {
+            startError?.let { throw it }
             isStarted = true
+        }
+
+        override suspend fun finalizeCurrentText(): String? {
+            finalizeCalls++
+            return finalizeResult.also { finalizeResult = null }
         }
 
         override suspend fun stop(): String? {

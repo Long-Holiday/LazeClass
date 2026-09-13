@@ -1,6 +1,7 @@
 package com.voiceqa.app.speech
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,6 +28,25 @@ class MiniMaxAsrProtocolTest {
             "invalid key",
             MiniMaxAsrProtocol.parseError("""{"type":"error","error":{"message":"invalid key"}}""")
         )
+    }
+
+    @Test
+    fun `parses MiniMax SSE data lines`() {
+        val first = MiniMaxAsrProtocol.parseStreamEvent(
+            "data: {\"index\":0,\"delta\":\"实际上\",\"finish\":false}"
+        )
+        val last = MiniMaxAsrProtocol.parseStreamEvent(
+            "data: {\"index\":1,\"delta\":\"可以\",\"finish\":true,\"duration\":1.2}"
+        )
+
+        assertEquals(0, first?.index)
+        assertEquals("实际上", first?.delta)
+        assertFalse(first?.finished ?: true)
+        assertEquals(1, last?.index)
+        assertEquals("可以", last?.delta)
+        assertTrue(last?.finished == true)
+        assertNull(MiniMaxAsrProtocol.parseStreamEvent(""))
+        assertNull(MiniMaxAsrProtocol.parseStreamEvent("data: [DONE]"))
     }
 
     @Test

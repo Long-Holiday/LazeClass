@@ -9,7 +9,7 @@ VoiceQA 是一个单 APK、客户端 BYOK 直连 LLM、基于 MiniMax ASR 的智
 - **UI 框架**: Jetpack Compose + Material 3
 - **架构模式**: MVVM + Repository
 - **异步控制**: Kotlin Coroutines、Flow、Channel（单消费者请求队列）
-- **语音识别**: MiniMax `asr-1.0`（16 kHz 单声道采集、端侧静音分段、云端文件转写）
+- **语音识别**: MiniMax `asr-1.0`（16 kHz 单声道采集、自适应静音分段、SSE 增量转写）
 - **网络通信**: OkHttp (超时与自动重试策略) + Kotlinx Serialization JSON
 - **本地存储**: Room Database（会话、文本段落、问答历史三张表）
 - **应用配置**: AndroidX DataStore Preferences
@@ -45,8 +45,8 @@ app/
 │
 ├─ speech/
 │  ├─ SpeechToText.kt                       // 语音识别抽象接口与事件
-│  ├─ MiniMaxSpeechRecognizer.kt            // 录音、静音分段与 MiniMax ASR 上传队列
-│  ├─ MiniMaxAsrProtocol.kt                 // 语言映射、响应解析与 WAV 封装
+│  ├─ MiniMaxSpeechRecognizer.kt            // 录音、自适应静音分段、重试与 ASR 上传队列
+│  ├─ MiniMaxAsrProtocol.kt                 // 语言映射、JSON/SSE 解析与 WAV 封装
 │  └─ TranscriptNormalizer.kt               // 问句标点空格规范化与 5 分钟 SHA-256 去重
 │
 ├─ batching/
@@ -110,8 +110,9 @@ app/
 
 5. **MiniMax ASR 近实时转写**
    - 使用 `AudioRecord` 采集 16 kHz、16-bit、单声道 PCM。
-   - 在本地根据停顿切分音频，最长约 15 秒，以 WAV 文件调用 `/v1/speech_to_text`。
-   - MiniMax 接口是文件上传式识别；每段文本会在停顿并完成网络请求后显示，不是逐字上屏。
+   - 采用自适应环境噪声阈值，约 0.6 秒停顿即切分，最长 10 秒，以 WAV 文件调用 `/v1/speech_to_text`。
+   - 请求启用 SSE 增量响应，服务端识别出的文字会逐步显示；网络抖动和 429/5xx 会自动退避重试。
+   - 点击“立即发送”会主动结束当前音频段，无需等待自动静音切分。
 
 6. **离线测试模式 (Fake LLM)**
    - 在设置页中勾选“离线模拟提供者 (Fake LLM)”，可以在无网络或无 API Key 环境下测试语音输入、问答展示、TTS 朗读与会话保存。

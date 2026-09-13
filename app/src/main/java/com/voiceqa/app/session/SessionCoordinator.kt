@@ -31,6 +31,7 @@ import com.voiceqa.app.speech.TranscriptNormalizer
 import com.voiceqa.app.tts.TextToSpeechManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -44,6 +45,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 class SessionCoordinator(
     private val context: Context? = null,
@@ -102,6 +104,9 @@ class SessionCoordinator(
     private var speechCollectJob: Job? = null
     private var currentSettings: AppSettings = AppSettings()
     private val sessionTransitionMutex = Mutex()
+    private val batchGenerations = ConcurrentHashMap<String, Long>()
+    @Volatile
+    private var contentGeneration = 0L
 
     private val analysisQueue = AnalysisQueue(externalScope) { batch ->
         analyzeOneBatch(batch)
@@ -136,6 +141,10 @@ class SessionCoordinator(
         ) return@withLock _captureState.value is CaptureState.Listening
 
         _captureState.value = CaptureState.Starting
+        currentSettings = settingsRepository.settingsFlow.first()
+
+        // A fatal recognizer callback may leave a session open. Close it before retrying.
+        finishCurrentSessionRecord()
         val sessionId = UUID.randomUUID().toString()
         currentSessionId = sessionId
 
@@ -163,7 +172,12 @@ class SessionCoordinator(
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start speech recognizer", e)
+            speechCollectJob?.cancel()
+            speechCollectJob = null
+            sessionDao.deleteSession(sessionId)
+            currentSessionId = null
             _captureState.value = CaptureState.Error(e.localizedMessage ?: "启动录音失败")
+            _lastMessage.value = e.localizedMessage ?: "启动录音失败"
             false
         }
     }
@@ -192,19 +206,18 @@ class SessionCoordinator(
         // Force flush remaining segments
         flush(FlushReason.STOP_LISTENING, force = true)
 
-        // Update session entity endedAt
-        currentSessionId?.let { sId ->
-            val existing = sessionDao.getSessionById(sId)
-            if (existing != null) {
-                sessionDao.updateSession(existing.copy(endedAt = System.currentTimeMillis()))
-            }
-        }
-
-        currentSessionId = null
+        finishCurrentSessionRecord()
         _captureState.value = CaptureState.Idle
     }
 
     suspend fun flushNow() {
+        // "立即发送" must also finalize text that is still only a partial result.
+        if (_captureState.value is CaptureState.Listening) {
+            runCatching { actualSpeechToText.finalizeCurrentText() }
+                .onFailure { Log.w(TAG, "Unable to finalize current utterance", it) }
+                .getOrNull()
+                ?.let { onFinalTranscript(it) }
+        }
         flush(FlushReason.USER_MANUAL, force = true)
     }
 
@@ -223,7 +236,9 @@ class SessionCoordinator(
         when (event) {
             is SpeechEvent.Partial -> {
                 // Partial text ONLY updates UI, never writes to DB or triggers LLM
-                _captureState.value = CaptureState.Listening(partialText = event.text)
+                if (_captureState.value is CaptureState.Listening) {
+                    _captureState.value = CaptureState.Listening(partialText = event.text)
+                }
             }
 
             is SpeechEvent.Final -> {
@@ -246,12 +261,10 @@ class SessionCoordinator(
 
             is SpeechEvent.Error -> {
                 Log.w(TAG, "SpeechEvent error: ${event.code} - ${event.message}")
-                if (event.code == -10) {
+                if (event.isFatal) {
                     _captureState.value = CaptureState.Error(event.message)
                 }
-                if (event.code != -1 && event.code != 7) { // Filter non-fatal timeouts
-                    _lastMessage.value = "语音提示: ${event.message}"
-                }
+                _lastMessage.value = "语音提示: ${event.message}"
             }
         }
     }
@@ -325,14 +338,16 @@ class SessionCoordinator(
 
         // Update segment status in DB to IN_FLIGHT
         segmentDao.updateSegmentStatus(batch.segmentIds, SegmentStatus.IN_FLIGHT)
+        batchGenerations[batch.id] = contentGeneration
 
         // Enqueue to single consumer channel
-        analysisQueue.enqueue(batch)
-
         _analysisState.value = AnalysisState.Waiting(transcriptBuffer.pendingChars())
+        analysisQueue.enqueue(batch)
     }
 
     internal suspend fun analyzeOneBatch(batch: AnalysisBatch) {
+        val batchGeneration = batchGenerations[batch.id] ?: contentGeneration
+        if (batchGeneration != contentGeneration) return
         _analysisState.value = AnalysisState.Sending(batch.id)
 
         val provider = if (currentSettings.useFakeLlm) {
@@ -352,6 +367,7 @@ class SessionCoordinator(
 
         try {
             val result = provider.analyze(batch, llmSettings, apiKey)
+            if (batchGeneration != contentGeneration) return
 
             // Commit batch in buffer
             transcriptBuffer.commit(batch.id)
@@ -395,6 +411,8 @@ class SessionCoordinator(
             _lastMessage.value = result.message.ifBlank { "已收到回复" }
             _analysisState.value = AnalysisState.Idle
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            if (batchGeneration != contentGeneration) return
             Log.e(TAG, "LLM analysis failed for batch ${batch.id}", e)
             // Rollback segments back to pending
             transcriptBuffer.rollback(batch.id)
@@ -402,12 +420,16 @@ class SessionCoordinator(
 
             _analysisState.value = AnalysisState.Failed(batch.id, e.localizedMessage ?: "分析失败")
             _lastMessage.value = "分析异常: ${e.localizedMessage ?: "未知错误"}"
+        } finally {
+            batchGenerations.remove(batch.id)
         }
     }
 
     suspend fun clearChatHistory() = withContext(Dispatchers.IO) {
         actualTtsManager.stop()
         batchScheduler.cancel()
+        contentGeneration++
+        batchGenerations.clear()
 
         // 1. 清空所有 Room 数据表
         sessionDao.clearAll()
@@ -440,7 +462,18 @@ class SessionCoordinator(
         _chatMessages.value = emptyList()
         _recentAnswers.value = emptyList()
         _confirmedTranscript.value = ""
+        _analysisState.value = AnalysisState.Idle
         _lastMessage.value = "已清空所有聊天记录并释放存储空间"
+    }
+
+    private suspend fun finishCurrentSessionRecord() {
+        val sessionId = currentSessionId ?: return
+        sessionDao.getSessionById(sessionId)?.let { existing ->
+            if (existing.endedAt == null) {
+                sessionDao.updateSession(existing.copy(endedAt = System.currentTimeMillis()))
+            }
+        }
+        currentSessionId = null
     }
 
     fun speakAnswer(text: String) {

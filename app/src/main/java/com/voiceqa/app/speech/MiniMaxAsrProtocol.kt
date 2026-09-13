@@ -1,7 +1,9 @@
 package com.voiceqa.app.speech
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.nio.ByteBuffer
@@ -14,6 +16,12 @@ internal object MiniMaxAsrProtocol {
         "ar", "tr", "fr", "de", "es", "it", "pt", "pl", "ru", "uk"
     )
 
+    data class StreamEvent(
+        val index: Int,
+        val delta: String,
+        val finished: Boolean
+    )
+
     fun languageHeader(locale: String): String? {
         val normalized = locale.trim().lowercase().replace('_', '-')
         val language = normalized.substringBefore('-')
@@ -23,6 +31,19 @@ internal object MiniMaxAsrProtocol {
     fun parseText(body: String): String {
         val root = json.parseToJsonElement(body).jsonObject
         return root["text"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+    }
+
+    fun parseStreamEvent(line: String): StreamEvent? {
+        val payload = line.trim().removePrefix("data:").trim()
+        if (payload.isEmpty() || payload == "[DONE]") return null
+        return runCatching {
+            val root = json.parseToJsonElement(payload).jsonObject
+            StreamEvent(
+                index = root["index"]?.jsonPrimitive?.intOrNull ?: return null,
+                delta = root["delta"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                finished = root["finish"]?.jsonPrimitive?.booleanOrNull ?: false
+            )
+        }.getOrNull()
     }
 
     fun parseError(body: String): String? = runCatching {

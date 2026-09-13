@@ -199,7 +199,7 @@ fun SettingsScreen(
                     }
 
                     Text(
-                        "语音会按停顿切段并上传至 MiniMax，识别结果将在网络请求完成后显示。",
+                        "语音会按停顿智能切段并上传至 MiniMax；服务端识别时将流式显示增量文本。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
