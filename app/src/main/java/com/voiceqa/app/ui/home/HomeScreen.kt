@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -179,8 +180,9 @@ fun HomeScreen(
             val isThinking = uiState.analysisState is AnalysisState.Sending
             val listState = rememberLazyListState()
             val totalItemCount = uiState.messages.size + if (isThinking) 1 else 0
+            val scrollKey = (uiState.messages.lastOrNull()?.id ?: "") to isThinking
 
-            LaunchedEffect(totalItemCount) {
+            LaunchedEffect(scrollKey) {
                 if (totalItemCount > 0) {
                     listState.animateScrollToItem(totalItemCount - 1)
                 }
@@ -216,7 +218,7 @@ fun HomeScreen(
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "点击下方开始监听，语音将自动转写并与对方对话",
+                                text = "点击下方开始监听，通过语音与 AI 展开对话",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.outline,
                                 textAlign = TextAlign.Center
@@ -391,7 +393,7 @@ fun ChatMessageBubble(
                 horizontalArrangement = Arrangement.End
             ) {
                 Surface(
-                    modifier = Modifier.fillMaxWidth(0.82f),
+                    modifier = Modifier.widthIn(min = 48.dp, max = 300.dp),
                     shape = RoundedCornerShape(
                         topStart = 16.dp,
                         topEnd = 16.dp,
@@ -438,7 +440,7 @@ fun ChatMessageBubble(
                 horizontalArrangement = Arrangement.Start
             ) {
                 Surface(
-                    modifier = Modifier.fillMaxWidth(0.85f),
+                    modifier = Modifier.widthIn(min = 48.dp, max = 320.dp),
                     shape = RoundedCornerShape(
                         topStart = 16.dp,
                         topEnd = 16.dp,
